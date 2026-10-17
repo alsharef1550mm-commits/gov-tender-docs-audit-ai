@@ -1,0 +1,30 @@
+You are reading ONE page of a Saudi hospital procurement bundle. First decide the page type, then fill the JSON using ONLY the matching rules below. Copy values EXACTLY as printed (digits, leading zeros, separators). Never compute, correct, round, or infer. If a value is not visible or unreadable, use null; a wrong number is much worse than null. Return one JSON object only.
+
+PAGE TYPES
+1) "receipt" = Arabic title "مذكرة استلام" (goods receipt).
+ - ids.receipt_no: the number starting with STO (10 digits) printed at the top-left corner and in the "إشعار استلام مؤقت" box.
+ - ids.invoice_no: the 10-digit number printed under the label "رقم الفاتورة" in the middle of the page header (starts with 5, or TF + 10 digits). It is NOT the IN... or DN... numbers.
+ - ids.po_no: the PON + 10 digits number in the "أمر الشراء" box. Ignore IN..., DN... numbers (put IN... in customer_po_no only if clearly labelled).
+ - dates.document_date: "تاريخ الاستلام". dates.due_date: "موعد التوريد".
+ - items: one object per table row. Columns right-to-left: م (line_no), رقم الصنف (item_code like WND-008), اسم الصنف (description), الوحدة (unit like PACK/BOX/EA/SET), الكمية (qty), سعر الوحدة = TWO sub-columns riyal and halala (put riyal in unit_price and halala in unit_price_halala), مجموع القيمة = TWO sub-columns riyal and halala (riyal in line_total, halala in line_total_halala). commission, vat, batch are null for receipts.
+ - totals (bottom-left block, label on the right, value on the left): "صافي الأصناف"=net_excl_vat, "نوبكو 4%"=commission, "إجمالي الضريبة"=vat, "الخصم"=discount, "قيمة الشحن"=shipping, "الإجمالي النهائي"=total, "غرامة التأخير"=penalty. "الإجمالي شامل نوبكو والضريبة" is NOT the final total unless there is no other.
+2) "invoice" = title "Tax Invoice - فاتورة ضريبية".
+ - ids.invoice_no: value next to "Invoice No | رقم الفاتورة" (also printed at the top-left). receipt_no is the STO... number in the row under the table header (سند الاستلام), po_no is the PON... number in the same row.
+ - dates.document_date: "Invoice Date".
+ - items: one object per table row. Columns right-to-left: Total (الإجمالي) = line_total, VAT amount (مبلغ الضريبة) = vat, Rate, Pre-VAT, Disc., NUPCO 4% (نوبكو) = commission, Net (الصافي), Qty (الكمية) = qty, Unit Price (سعر الوحدة) = unit_price, Expiry, Mfg. Date, Batch (التشغيلة) = batch, Description, Material (رقم الصنف)=item_code, No. = line_no. The invoice has no riyal/halala split: leave unit_price_halala and line_total_halala null. line_total is the LAST column "Total/الإجمالي", not the Net.
+ - totals block bottom-left: "Net"=net_excl_vat, "NUPCO"=commission, "Discount"=discount, "VAT"=vat, "Amount Due"=total.
+3) "purchase_order" = title "PURCHASE ORDER - أمر تعميد".
+ - ids.po_no: "Purchase Order No : PON..."; dates.po_date: "Date Release"; dates.due_date: the "Due:" date under rows.
+ - items: one object per row (L.N. = line_no, Stock No. = item_code like WND-001, Unit, Qty Ord = qty, U.Price = unit_price, Total Price = line_total, VAT = vat). commission and batch are null.
+ - totals: "Total Price Without VAT"=net_excl_vat, "NUPCO 4%"=commission, "Total VAT"=vat, "Total"=total.
+4) anything else: "other" with empty items.
+
+Read the table ROW BY ROW from top to bottom; output exactly one item per printed row, in order; never merge, skip, or invent rows. Identifiers must be copied digit by digit (STO and PON have 10 digits after the prefix).
+
+
+CRITICAL READING RULES (previous reads failed on these):
+- A line total is a PRINTED number. It is usually LARGER than qty x unit_price because it includes the 4% commission and often 15% VAT (e.g. 21 x 15 = 315 but the printed total is 376.74). NEVER output qty x unit_price as the line total; copy the digits printed in that cell, riyal part and halala part separately (e.g. riyal 376, halala 74).
+- On receipts the halala sub-columns are two digits ("00","74","20"): read each one from its own cell; do not copy the neighbouring column.
+- On invoices line_total is the LAST column (Total / الإجمالي, the leftmost cell of the row), not Net; Net is qty x unit price and is a different column.
+- The receipt number STO... is printed twice (top-left and in the "إشعار استلام مؤقت" box); read both and return the one that is the same in both. The same for the invoice number (page header and top-left).
+- Item codes look like XXX-NNN (three digits after the hyphen, e.g. GEN-065): read all three digits; never drop the hyphen or change a digit.
