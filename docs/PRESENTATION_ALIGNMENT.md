@@ -6,7 +6,7 @@ Revision: 19 October 2026. The presentation has exactly fifteen slides and is a 
 
 - The researcher's seventh thesis revision and the implementation of document extraction, supported contract parsing, Decimal arithmetic, matching and review.
 - The 17 October test report: 7,249 text-layer receipts agreeing with the compared report fields; ten known errors in the 730 regression set; 57 correct automatic acceptances out of 61 synthetic-scan receipts; four referrals. The VLM re-test reused saved readings.
-- The researcher's correction on 19 October: the earlier failed additional-template run does not represent the current system. The latest local trial took less than two minutes and produced observations the researcher checked against the documents and confirmed were actual errors preventing payment of the affected receipts until correction. This is an operational observation, not a computed precision or recall rate.
+- Official runtime benchmark, 19 October: batch MED-2026-144-02-012, 18 receipts, 12 seconds; complete tender MED-2026-231, 1,653 receipts, 424 seconds. Researcher-directed, automation-assisted local runs on known synthetic text PDFs. Previous ad hoc times are superseded for the official comparison. See OFFICIAL_PERFORMANCE_TEST_20261019.md.
 - The researcher confirmed that the 49-page additional-template dataset is entirely synthetic with fictitious data. Its name is not evidence that it contains real supplier records.
 
 ## Interpretation
@@ -15,7 +15,7 @@ Automatic acceptance, accuracy of extracted fields, detection of an actual accou
 
 The Tesseract summary uses an earlier 210-page baseline; the VLM prompt comparison uses 90 pages. These are development results, not a paired benchmark on the same sample. Tender-level weight-training separation does not make later diagnostic use of held-out bundles a blind final test.
 
-The historical 56-minute manual observation and the latest under-two-minute machine run cover different activities. The assisted end-to-end review time has not been measured under a controlled comparison. The workload slider is an explicitly labelled scenario calculation.
+The researcher reports 180–204 seconds per receipt for full manual checking. The interactive slider extrapolates estimated manual effort: 54–61.2 minutes for 18 receipts and 82.65–93.67 working hours for 1,653 receipts. These are not timed manual trials on the complete files. System timing excludes upload, ZIP preparation / pre-job expansion, subsequent verification and human review. End-to-end savings have not been measured.
 
 ## Presentation behavior
 
