@@ -676,7 +676,7 @@ def main():
     JP.cleanup()
     demo = build()
     demo.queue().launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", "7860")),
-                        auth=(("user", pw) if pw else None), max_file_size=f"{JP.MAX_FILE_MB}mb")
+                        auth=(("user", pw) if pw else None), max_file_size=f"{max(JP.MAX_FILE_MB, JP.MAX_ZIP_MB)}mb")
 
 
 if __name__ == "__main__":
