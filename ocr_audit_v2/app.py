@@ -46,7 +46,12 @@ def pres_tab_html() -> str:
     if not PRES_URL:
         return "<div class='hint'>ملف العرض التقديمي غير موجود في هذا التشغيل.</div>"
     u = html.escape(PRES_URL)
-    return ("<iframe src='" + u + "' title='Project presentation' style='width:100%;height:78vh;border:1px solid #24345a;border-radius:14px;background:#0b1020' allowfullscreen></iframe>")
+    return ("<div class='presentation-stage' style='width:calc(100vw - 40px);margin-inline-start:calc(50% - 50vw + 20px)'>"
+            "<div style='display:flex;justify-content:flex-end;margin-bottom:8px'><a href='" + u + "' target='_blank' rel='noopener' "
+            "style='padding:.45rem .9rem;border:1px solid #3f6585;border-radius:9px;color:var(--ink);text-decoration:none'>"
+            "⛶ فتح العرض بحجم كامل</a></div>"
+            "<iframe src='" + u + "' title='Project presentation' style='display:block;width:100%;height:calc(100dvh - 155px);min-height:580px;"
+            "border:1px solid #24345a;border-radius:14px;background:#0b1020' allowfullscreen></iframe></div>")
 
 
 # ---------------------------------------------------------------- المظهر
@@ -149,7 +154,10 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 def _orient_hint():
     """إرشاد الاتجاه في شاشة الرفع: صورة مصغرة لسند اصطناعي بالاتجاه الصحيح، وإحالة لأداة تصحيح الاتجاه."""
     try:
-        with open(os.path.join(_HERE, "assets", "orient_example.jpg"), "rb") as f:
+        example_path = os.path.join(_HERE, "assets", "orient_example.jpg")
+        if not os.path.isfile(example_path):
+            example_path = os.path.join(_HERE, "orient_example.jpg")  # يدعم تخطيط الملفات المسطح على Space
+        with open(example_path, "rb") as f:
             src = "data:image/jpeg;base64," + base64.b64encode(f.read()).decode()
     except OSError:
         src = ""
@@ -164,7 +172,9 @@ def _orient_hint():
         "<b>الملفات الكبيرة:</b> يمكن ضغطها في ملف ZIP ورفعه مباشرة.",
     ]
     return ("<div class='card' style='display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap'>"
-            + (f"<img src='{src}' alt='مثال اتجاه صحيح' style='width:200px;border-radius:8px;border:1px solid #9BB3C9'>" if src else "")
+            + (f"<figure style='width:250px;max-width:100%;margin:0'><img src='{src}' alt='سند الاستلام الاصطناعي STO0000005253 من المنافسة MED-2026-339 بالاتجاه الصحيح' "
+               "style='width:100%;border-radius:8px;border:1px solid #9BB3C9'><figcaption style='font-size:.75rem;line-height:1.6;margin-top:.35rem'>"
+               "مثال سند استلام اصطناعي بالشكل المعتمد والاتجاه الصحيح</figcaption></figure>" if src else "")
             + "<div style='flex:1;min-width:260px'><b>شروط الرفع</b><ol style='margin:.4rem 0 0;padding-inline-start:1.3rem;line-height:1.9'>"
             + "".join(f"<li>{x}</li>" for x in items) + "</ol></div></div>")
 
