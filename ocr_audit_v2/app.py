@@ -46,7 +46,7 @@ def pres_tab_html() -> str:
     if not PRES_URL:
         return "<div class='hint'>ملف العرض التقديمي غير موجود في هذا التشغيل.</div>"
     u = html.escape(PRES_URL)
-    return ("<style>.block:has(.presentation-stage){overflow:visible!important}</style><div class='presentation-stage' style='width:calc(100vw - 40px);margin-inline-start:calc(50% - 50vw + 20px)'>"
+    return ("<style>.block:has(.presentation-stage),.gradio-container:has(.presentation-stage){overflow:visible!important}</style><div class='presentation-stage' style='width:calc(100vw - 40px);margin-inline-start:calc(50% - 50vw + 20px)'>"
             "<div style='display:flex;justify-content:flex-end;margin-bottom:8px'><a href='" + u + "' target='_blank' rel='noopener' "
             "style='padding:.45rem .9rem;border:1px solid #3f6585;border-radius:9px;color:var(--ink);text-decoration:none'>"
             "⛶ فتح العرض بحجم كامل</a></div>"
