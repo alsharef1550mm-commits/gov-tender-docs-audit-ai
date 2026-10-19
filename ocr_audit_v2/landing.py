@@ -114,7 +114,8 @@ LANG_JS = """
 """
 
 LANDING_CSS = """
-.landing{direction:rtl;max-width:1080px;margin:0 auto;animation:lfade .5s ease both}
+.landing{direction:rtl;width:100%;max-width:100%;min-width:0;margin:0 auto;box-sizing:border-box;animation:lfade .5s ease both}
+.landing *{box-sizing:border-box;min-width:0}
 @keyframes lfade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .landing[data-lang="en"]{direction:ltr}
 .landing[data-lang="ar"] .en,.landing[data-lang="en"] .ar{display:none !important}
@@ -139,7 +140,7 @@ LANDING_CSS = """
 .chips2{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1.2rem}
 .chip2{display:inline-flex;align-items:center;gap:.4rem;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);border-radius:12px;padding:.35rem .75rem;font-size:.84rem;font-weight:600}
 .landing[data-lang="ar"] .h-ar,.landing[data-lang="both"] .h-ar{display:block}
-.acad{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.9rem;margin:1.1rem 0 .4rem}
+.acad{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:.9rem;margin:1.1rem 0 .4rem}
 .pcard{display:flex;align-items:center;gap:.9rem;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px;box-shadow:0 1px 4px rgba(23,54,93,.08);transition:transform .18s,box-shadow .18s}
 .pcard:hover{transform:translateY(-3px);box-shadow:0 8px 20px rgba(23,54,93,.16)}
 .pcard.wide{grid-column:1/-1}
@@ -152,7 +153,7 @@ LANDING_CSS = """
 .ltitle{display:flex;align-items:center;gap:.6rem;color:var(--brand);font-size:1.2rem;font-weight:800;margin:1.6rem 0 .7rem}
 .ltitle::after{content:"";flex:1;height:2px;background:linear-gradient(90deg,var(--line),transparent)}
 .landing[data-lang="en"] .ltitle::after{background:linear-gradient(270deg,var(--line),transparent)}
-.lsteps{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:.8rem;position:relative}
+.lsteps{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:.8rem;position:relative}
 .lstep,.lprin{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;position:relative;transition:transform .18s,box-shadow .18s,border-color .18s}
 .lstep:hover,.lprin:hover{transform:translateY(-4px);box-shadow:0 10px 24px rgba(23,54,93,.18);border-color:var(--brand2)}
 .sico{font-size:1.6rem;margin-bottom:.3rem}
@@ -161,7 +162,7 @@ LANDING_CSS = """
 .lt{color:var(--brand);margin-bottom:.25rem}
 .ld{color:var(--ink);font-size:.88rem;line-height:1.75}.ld .en{color:var(--mut);font-size:.8rem;text-align:left;margin-top:.2rem}
 .lt .en{color:var(--mut);font-size:.82rem;text-align:left}
-.lprins{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:.8rem}
+.lprins{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,430px),1fr));gap:.8rem}
 .lprin{display:flex;gap:.8rem;align-items:flex-start}
 .pico{flex:none;width:44px;height:44px;border-radius:12px;background:var(--soft);display:flex;align-items:center;justify-content:center;font-size:1.4rem}
 .lnote{display:flex;gap:.7rem;align-items:flex-start;margin:1.5rem 0 .6rem;padding:12px 16px;border-radius:14px;background:var(--warn-bg);border:1px solid var(--warn);color:var(--ink);font-size:.86rem;line-height:1.8}

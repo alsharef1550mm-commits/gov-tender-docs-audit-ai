@@ -46,12 +46,9 @@ def pres_tab_html() -> str:
     if not PRES_URL:
         return "<div class='hint'>ملف العرض التقديمي غير موجود في هذا التشغيل.</div>"
     u = html.escape(PRES_URL)
-    return ("<style>.block:has(.presentation-stage),.gradio-container:has(.presentation-stage){overflow:visible!important}</style><div class='presentation-stage' style='width:calc(100vw - 40px);margin-inline-start:calc(50% - 50vw + 20px)'>"
-            "<div style='display:flex;justify-content:flex-end;margin-bottom:8px'><a href='" + u + "' target='_blank' rel='noopener' "
-            "style='padding:.45rem .9rem;border:1px solid #3f6585;border-radius:9px;color:var(--ink);text-decoration:none'>"
-            "⛶ فتح العرض بحجم كامل</a></div>"
-            "<iframe src='" + u + "' title='Project presentation' style='display:block;width:100%;height:calc(100dvh - 155px);min-height:580px;"
-            "border:1px solid #24345a;border-radius:14px;background:#0b1020' allowfullscreen></iframe></div>")
+    return ("<div class='presentation-stage'>"
+            "<iframe class='presentation-frame' src='" + u + "' title='العرض التقديمي للمشروع · Project presentation' "
+            "allow='fullscreen' allowfullscreen></iframe></div>")
 
 
 # ---------------------------------------------------------------- المظهر
@@ -60,7 +57,17 @@ CSS = """
       --ok:#1E7B4B;--ok-bg:#E4F5EC;--warn:#B45309;--warn-bg:#FFF4E0;--bad:#B3261E;--bad-bg:#FDEAE8;--info:#1F4E79;--info-bg:#E1EFFA}
 .dark{--brand:#A9CDF2;--brand2:#2F6FB0;--soft:#1E3550;--soft2:#1A2A3A;--line:#3F5A75;--ink:#E6EDF5;--mut:#9FB0C3;--card:#17232F;--track:#243546;
       --ok:#5FD39A;--ok-bg:#12382A;--warn:#F2B25C;--warn-bg:#3B2A10;--bad:#FF9A92;--bad-bg:#40191A;--info:#9CC9F5;--info-bg:#1E3550}
-.gradio-container{direction:rtl;font-family:'Tahoma','Segoe UI',Arial,sans-serif !important;max-width:1180px !important;margin:auto}
+.gradio-container{direction:rtl;font-family:'Tahoma','Segoe UI',Arial,sans-serif !important;width:100%!important;max-width:1440px!important;margin-inline:auto!important;box-sizing:border-box;padding-inline:clamp(12px,2vw,28px)!important}
+.gradio-container>main{width:100%;max-width:none!important;padding:16px 0!important;box-sizing:border-box}
+.gradio-container .block,.gradio-container .form,.gradio-container .tabs,.gradio-container .tabitem{min-width:0;box-sizing:border-box}
+#presentation-panel{padding:0!important;border:0!important;background:transparent!important;min-width:0;width:100%}
+.presentation-stage{inline-size:100%;max-inline-size:100%;min-inline-size:0;margin:0;overflow:hidden;border:1px solid var(--line);border-radius:16px;background:#0b1020;box-shadow:0 8px 28px rgba(11,16,32,.14)}
+.presentation-frame{display:block;inline-size:100%;max-inline-size:100%;block-size:clamp(480px,76svh,900px);border:0;background:#0b1020;direction:ltr}
+.app-toolbar{justify-content:flex-start!important;gap:8px!important}
+.app-toolbar>button{flex:0 1 auto!important;width:auto!important;min-width:120px!important;min-height:44px;border-radius:10px}
+.tab-nav,[role=tablist]{max-width:100%;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:thin}
+.tab-nav button,[role=tablist] button{white-space:nowrap;min-height:44px;flex-shrink:0}
+@media(max-width:640px){.presentation-stage{border-radius:12px}.presentation-frame{block-size:max(500px,76svh)}h1.app-title{font-size:1.15rem;line-height:1.65}.app-sub{font-size:.85rem;line-height:1.7}.secs{grid-template-columns:1fr}}
 .gradio-container .prose,.gradio-container label,.gradio-container input,.gradio-container textarea{text-align:right}
 h1.app-title{color:var(--brand);font-size:1.55rem;margin:.2rem 0 .1rem;font-weight:800}
 .app-sub{color:var(--mut);margin:0 0 .6rem}
@@ -95,7 +102,7 @@ h1.app-title{color:var(--brand);font-size:1.55rem;margin:.2rem 0 .1rem;font-weig
 .sumline{font-weight:700;color:var(--brand);margin:.2rem 0 .5rem}
 .tab-nav button{font-weight:700}
 .lensbar{margin:.5rem 0}
-.secs{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:1rem;margin:.5rem 0;align-items:start}
+.secs{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:1rem;margin:.5rem 0;align-items:start}
 .secs.one{grid-template-columns:1fr}
 .sec h4{margin:.2rem 0 .5rem;color:var(--brand);font-size:1.02rem;border-bottom:2px solid var(--line);padding-bottom:.25rem}
 .sec{display:flex;flex-direction:column;gap:.8rem}
@@ -558,12 +565,12 @@ def build():
             gr.HTML(L.hero_html())
             enter = gr.Button("الدخول إلى النظام · Enter the system  ←", variant="primary", size="lg", elem_classes="enter-btn")
             gr.HTML(L.body_html())
-            enter2 = gr.Button("الدخول إلى النظام · Enter the system  ←", variant="primary", size="lg", elem_classes="enter-btn")
             gr.HTML(pres_link_html())
         with gr.Column(visible=False) as main:
             gr.HTML("<h1 class='app-title'>"+L.PROJECT_AR+"</h1><p class='app-sub'>"+L.TAGLINE_AR+" · <bdi dir='ltr'>"+L.PROJECT_EN+"</bdi></p>")
             gr.HTML(f"<div class='note'>{NOTE}</div>")
-            about = gr.Button("عن المشروع · About", size="sm")
+            with gr.Row(elem_classes="app-toolbar"):
+                about = gr.Button("عن المشروع · About", size="sm", scale=0)
             job_card = gr.HTML(job_card_html(None))
             job_dd = gr.Dropdown(label="المهمة", choices=_job_choices(), value=None, visible=False)   # حامل المهمة الجارية (مخفي): إدارة المهام في الخلفية، والمستخدم يرى فحصه الحالي فقط
             sigs = gr.State({})
@@ -621,10 +628,9 @@ def build():
                     o_out = gr.File(label="النسخة المصححة")
                     o_msg = gr.HTML()
                 with gr.Tab("🎬 العرض التقديمي", id="present"):
-                    gr.HTML(pres_tab_html())
+                    gr.HTML(pres_tab_html(), elem_id="presentation-panel")
 
-        for _b in (enter, enter2):
-            _b.click(lambda: (gr.update(visible=False), gr.update(visible=True)), None, [landing, main])
+        enter.click(lambda: (gr.update(visible=False), gr.update(visible=True)), None, [landing, main])
         about.click(lambda: (gr.update(visible=True), gr.update(visible=False)), None, [landing, main])
         demo.load(lambda: gr.update(choices=_job_choices(), value=None), None, job_dd, show_progress="hidden")      # قائمة المهام تُجدَّد عند كل فتح للصفحة
         def orient_run(f, prog=gr.Progress()):

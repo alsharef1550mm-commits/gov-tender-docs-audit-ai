@@ -34,4 +34,4 @@ The four research diagrams were redrawn with legible Arabic and shared terminolo
 
 The thesis remains a local academic document. Synchronization publishes only the presentation and its project documentation and diagrams.
 
-The presentation frame uses almost the full viewport width and an increased height. The deck includes a full-screen button and redesigned previous/next controls. Upload guidance uses the synthetic receipt STO0000005253 from competition MED-2026-339, bundle 01-001, page 16.
+The presentation frame stays within the same responsive content container as the rest of the app, with a flexible height and a single full-screen button inside the deck. The duplicate landing-page entry button was removed. Previous/next controls and all fifteen slides are preserved. Upload guidance uses the synthetic receipt STO0000005253 from competition MED-2026-339, bundle 01-001, page 16.
