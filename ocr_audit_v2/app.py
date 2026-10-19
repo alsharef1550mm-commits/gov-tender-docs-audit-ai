@@ -33,7 +33,11 @@ PRES_FILE = next((p for p in (os.path.join(_APP_DIR, "static", "presentation.htm
                   if os.path.exists(p)), None)
 if PRES_FILE:
     gr.set_static_paths(paths=[PRES_FILE])
-PRES_URL = ("/gradio_api/file=" + PRES_FILE.replace(os.sep, "/")) if PRES_FILE else None
+PRES_URL = None
+if PRES_FILE:
+    with open(PRES_FILE, "rb") as _pres_source:
+        _pres_revision = hashlib.sha256(_pres_source.read()).hexdigest()[:12]
+    PRES_URL = "/gradio_api/file=" + PRES_FILE.replace(os.sep, "/") + "?v=" + _pres_revision
 
 
 def pres_link_html() -> str:
