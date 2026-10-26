@@ -49,11 +49,20 @@ def line_box(line: pdfx.Line) -> tuple[float, float, float, float]:
 
 
 # ---------------------------------------------------------------- تصنيف
+COLLECTIVE = {norm_ar("فاتورة"), norm_ar("جماعية")}   # فاتورة جماعية للدفعة: تسرد السندات وتعاميدها وصافي كل سند دون بنود أصناف
+
+
+def is_collective(text: str) -> bool:
+    """الكلمتان في سطر واحد بأي ترتيب (طبقة النص العربية قد تأتي بترتيب بصري)."""
+    return any(COLLECTIVE <= set(norm_ar(line).split()) for line in text.splitlines())
+RE_INV_ANY = re.compile(r"^(?:TF)?\d{10}$")
+
+
 def classify(p: pdfx.Page) -> str:
     txt = p.text
     if "PURCHASE ORDER" in txt:
         return "po"
-    if "Tax Invoice" in txt:
+    if "Tax Invoice" in txt or is_collective(txt):
         return "invoice"
     toks = {w.text for w in p.words}
     if any(re.match(r"^IN\d{10}$", t) for t in toks) and any(re.match(r"^DN\d{10}$", t) for t in toks):
@@ -98,6 +107,9 @@ class PO:
     pages: list[int] = field(default_factory=list)        # صفحات التعميد في الربطة (كل ظهور)
 
 
+TENDER_ON_PO = re.compile(r"\bNUPCO\s*:\s*\(?\s*([A-Z]{2,}[A-Z0-9]*(?:\s*[-/]\s*[A-Z0-9]+)+)", re.I)
+
+
 def parse_po_pages(pages: list[pdfx.Page], fname: str) -> list[PO]:
     pos: dict[str, PO] = {}
     for p in pages:
@@ -119,6 +131,10 @@ def parse_po_pages(pages: list[pdfx.Page], fname: str) -> list[PO]:
             continue
         po = pos.setdefault(pon, PO(pon, date, quarter))
         po.pages.append(p.n)
+        # The tender this order belongs to, as printed («REF : NUPCO : MED-2026-327»); report_writer checks identity.
+        tm = TENDER_ON_PO.search(" ".join(l.text for l in p.lines))
+        if tm:
+            po.__dict__.setdefault("tender_pages", []).append((p.n, tm.group(1)))
         lines = p.lines
         for i, l in enumerate(lines):
             toks = [w.text for w in sorted(l.words, key=lambda w: w.x0)]
@@ -257,7 +273,7 @@ def parse_receipts(pages: list[pdfx.Page], fname: str) -> list[Receipt]:
                     sto = t
                 if RE_PON.match(t) and pon is None:
                     pon = t
-                if RE_INV.match(t) and l.top < 70 and inv is None:
+                if RE_INV_ANY.match(t) and l.top < 70 and inv is None:          # رقم الفاتورة قد يحمل بادئة المورد (TF…)
                     inv = t
                 m = re.match(r"^MED-[A-Z0-9]+-?\d*$", t)
                 if m and comp is None and l.top < 100:
@@ -375,12 +391,19 @@ def parse_invoices(pages: list[pdfx.Page], fname: str) -> list[Invoice]:
                         break
             if number:
                 break
+        collective = is_collective(p.text)
+        if not number and collective:                    # رقمها في الترويسة تحت العنوان (مثل TF2702050002)
+            number = next((w.text for l in p.lines if l.top < 160 for w in l.words if RE_INV_ANY.match(w.text)), None)
         if not number:
             continue
         inv = invs.get(number)
         if inv is None:
             inv = invs[number] = Invoice(number)
             order.append(number)
+        if collective:
+            inv.__dict__["collective"] = True
+            if inv.date is None:
+                inv.date = next((w.text for l in p.lines if l.top < 160 for w in l.words if RE_DATE.match(w.text)), None)
         # نسخة الفاتورة: «Page i of n» يعود إلى 1 عند بدء نسخة مكررة (يُعتمد الترقيم المطبوع لا تطابق الصفوف)
         mp = re.search(r"Page (\d+) of (\d+)", p.text)
         if mp and int(mp.group(1)) == 1 and inv.pages:

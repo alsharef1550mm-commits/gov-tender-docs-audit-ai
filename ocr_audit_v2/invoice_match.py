@@ -72,7 +72,32 @@ def match_invoice(receipts, invoice, code_map=None, other_receipts=None):
     for sto, rr in attribution.items():
         for reason in rr["reasons"]:
             unmatched_receipt_lines[(reason[1])].append((sto, Decimal(reason[2]), Decimal(reason[3])))
+    # Item code printed differently on the receipt and the invoice (MOD code on the receipt, NUPCO material code on the
+    # invoice): one unused invoice line with the same quantity and price is shown beside it. It is never linked
+    # automatically (an approved code map decides), but it is one referral, not two.
+    code_diff = {}
+    for sto, rr in attribution.items():
+        for reason in rr["reasons"]:
+            if any(il["code"] == reason[1] for il in inv_lines):
+                continue
+            hits = [il for il in leftovers if id(il) not in code_diff and il["qty"] == Decimal(reason[2])
+                    and abs(il["price"] - Decimal(reason[3])) <= PRICE_TOL]
+            if len(hits) == 1:
+                code_diff[id(hits[0])] = (sto, reason, hits[0])
+                continue
+            # or the invoice splits the quantity over several lines of one (other) code at the same price
+            by_code = defaultdict(list)
+            for il in leftovers:
+                if id(il) not in code_diff and abs(il["price"] - Decimal(reason[3])) <= PRICE_TOL:
+                    by_code[il["code"]].append(il)
+            split = [ls for ls in by_code.values() if len(ls) > 1 and sum(x["qty"] for x in ls) == Decimal(reason[2])]
+            if len(split) == 1:
+                for il in split[0]:
+                    code_diff[id(il)] = (sto, reason, {**split[0][0], "split": [str(x["qty"]) for x in split[0]]})
+    explained = {(v[0], v[1][1]): v[2] for v in code_diff.values()}
     for il in leftovers:
+        if id(il) in code_diff:
+            continue
         # انقسام: كمية بند الفاتورة = مجموع كميات بنود غير مطابقة لسندات تذكر الفاتورة
         pool = [x for x in unmatched_receipt_lines.get(il["code"], []) if abs(x[2] - il["price"]) <= PRICE_TOL]
         if pool and sum(x[1] for x in pool) == il["qty"] and len(pool) > 1:
@@ -88,9 +113,15 @@ def match_invoice(receipts, invoice, code_map=None, other_receipts=None):
     for sto, rr in attribution.items():
         for reason in rr["reasons"]:
             pool_used = any(il["code"] == reason[1] for il in inv_lines)
-            review.append({"reason": "بند في السند لا يقابله بند مطابق في الفاتورة (صنف/عدد/سعر)" if pool_used
-                           else "صنف السند غير موجود في الفاتورة (أو يحتاج خريطة رموز معتمدة)",
+            twin = explained.get((sto, reason[1]))
+            review.append({"reason": ("رمز الصنف في السند يختلف عن رمز الفاتورة والكمية موزعة على عدة أسطر بالسعر نفسه: يلزم ربط رموز معتمد"
+                                      if twin and twin.get("split") else
+                                      "رمز الصنف في السند يختلف عن رمز الفاتورة والكمية والسعر متطابقان: يلزم ربط رموز معتمد"
+                                      if twin else "بند في السند لا يقابله بند مطابق في الفاتورة (صنف/عدد/سعر)" if pool_used
+                                      else "صنف السند غير موجود في الفاتورة (أو يحتاج خريطة رموز معتمدة)"),
                            "sto": sto, "code": reason[1], "qty": reason[2], "price": reason[3],
+                           "invoice_code": twin["code"] if twin else None, "invoice_page": twin.get("page") if twin else None,
+                           "invoice_split": twin.get("split") if twin else None,
                            "receipt_page": reason[4] if len(reason) > 4 else None, "receipt_file": reason[5] if len(reason) > 5 else None})
 
     # بنود متنازع عليها: صفوف فاتورة بلا سند، أو بنود سند بلا صف مطابق. أي سند تتقاطع بنوده (صنف+سعر) معها يُحال:
@@ -99,7 +130,12 @@ def match_invoice(receipts, invoice, code_map=None, other_receipts=None):
         """صف فائض مطابق تماماً (صنف/عدد/سعر/مبلغ) لصف مُسنَد: التبديل بينهما لا يغيّر مبلغ أي سند، فليس التباساً."""
         return any(ul["used"] and _key_matches(il, ul) and ul["qty"] == il["qty"] and ul.get("amount") == il.get("amount")
                    for ul in inv_lines if ul is not il)
-    contested = [{"code": il["code"], "price": il["price"]} for il in leftovers if not _interchangeable(il)]
+    mine = {r["sto"] for r in receipts}
+
+    def _other_receipt(il):
+        """صف تنسبه الفاتورة صراحة لسند آخر خارج هذه المطابقة (سند في ربطة أخرى): ليس التباساً لسندات الدفعة."""
+        return bool(il.get("sto")) and il["sto"] not in mine
+    contested = [{"code": il["code"], "price": il["price"]} for il in leftovers if not _interchangeable(il) and not _other_receipt(il)]
     for sto, rr in attribution.items():
         for reason in rr["reasons"]:
             contested.append({"code": reason[1], "price": Decimal(reason[3])})

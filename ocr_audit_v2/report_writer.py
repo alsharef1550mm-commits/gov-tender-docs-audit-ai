@@ -23,6 +23,7 @@ import invoice_match as IM
 import pdfx
 import report_style as RS
 import report_template as T
+from document_order import batch_receipt_ids
 
 D = Decimal
 SEP = "، "
@@ -95,6 +96,13 @@ def review_item(num, rv, mode="batch", n_bundles=None):
     it = {"invoice": num, **rv}
     it.setdefault("file", rv.get("invoice_file"))
     it.setdefault("page", rv.get("invoice_page"))
+    if rv.get("invoice_code"):
+        it["page"] = rv.get("receipt_page") or it.get("page")
+        it["why"] = (f"رمز الصنف في السند {rv.get('code')} (ص{rv.get('receipt_page')}) وفي الفاتورة {num} {rv['invoice_code']} "
+                     f"(ص{rv.get('invoice_page')})؛ "
+                     + (f"الكمية {rv.get('qty')} موزعة في الفاتورة على {len(rv['invoice_split'])} أسطر ({' + '.join(rv['invoice_split'])}) بالسعر {rv.get('price')}. "
+                        if rv.get("invoice_split") else f"الكمية {rv.get('qty')} والسعر {rv.get('price')} متطابقان. ") +
+                     "لا يُربط الرمزان آلياً: «سليم» إن كانا للصنف نفسه.")
     if rv.get("reason") != "بند في الفاتورة بلا سند يذكرها":
         return it
     if mode != "competition":
@@ -154,8 +162,12 @@ def _reason_text(res: engine.Result) -> str:
     return "؛ ".join(i.text for i in res.issues) if res.issues else None
 
 
+READ_CONFLICT = {"ocr": "قراءة OCR: تعارض بين المطبوع والمحسوب (قد يكون خطأ قراءة) يلزم مراجعة الصفحة",
+                 "vlm": "قراءة آلية: تعارض بين المطبوع والمحسوب أو بند لم يُقرأ كاملاً؛ يلزم مراجعة الصفحة"}
+
+
 def _ocr_review(b, res_by, unresolved):
-    """ربطة ممسوحة (OCR): كل سند فيه تعارض حسابي يُحال ولا يُحكم عليه «غير سليم» (التعارض غالباً خطأ قراءة)،
+    """ربطة ممسوحة (OCR): كل سند فيه تعارض حسابي يُحال ولا يُحكم عليه «غير سليم» (سبب التعارض لا يثبت بالحساب وحده)،
     وبند واحد للربطة يطلب الاعتماد البشري. يعيد {sto: مفتاح البند}."""
     from job_pipeline import item_key
     out = {}
@@ -165,18 +177,19 @@ def _ocr_review(b, res_by, unresolved):
     skipped = getattr(b, "reread_skipped", 0)
     unresolved.append({"reason": ("الربطة ممسوحة وقُرئت بنموذج رؤية" if src == "vlm" else "الربطة ممسوحة وقُرئت بـOCR") +
                        ": القيم غير موثّقة بشرياً (التحقق الحسابي وحده لا يكفي قبل نتائج القبول)"
-                       + (f"؛ واشتُبه في {skipped} صفحة فلم تُكرَّر قراءتها (قالب يختلف عن المتوقع غالباً)" if skipped else ""), "file": b.file, "page": 1})
+                       + (f"؛ واشتُبه في {skipped} صفحة فلم تُكرَّر قراءتها (بلغت الصفحات حد إعادة القراءة الآلية)" if skipped else ""), "file": b.file, "page": 1})
     for n, iss in sorted(getattr(b, "agree_issues", {}).items()):                  # صفحات لم يتفق عليها قارئان مستقلان
-        u = {"reason": "قراءتان آليتان مستقلتان لم تتفقا على هذه الصفحة: لا يُعتمد منها إلا ما اتفقتا عليه ويلزم مراجعتها", "file": b.file, "page": n, "why": iss["why"]}
+        u = {"reason": "قراءة آلية غير محسومة: يلزم التحقق من القيم وعناوينها في الصفحة", "file": b.file, "page": n, "why": iss["why"]}
         unresolved.append(u)
         pty = b.page_types.get(n)
         held = ([r.sto for r in b.receipts if n in r.pages] if pty == "receipt" else
-                [r.sto for r in b.receipts if any(n in x.pages and x.number == r.pon for x in b.pos)] if pty == "po" else [])
+                [r.sto for r in b.receipts if any(n in x.pages and x.number == r.pon for x in b.pos)] if pty == "po" else
+                [r.sto for r in b.receipts if any(n in x.pages and x.number == r.invoice_no for x in b.invoices)] if pty == "invoice" else [])
         for sto in held:
             out.setdefault(sto, item_key(u))
     for v in b.invoices:
         for fl in getattr(v, "flags", []):
-            u = {"reason": "إجمالي بند في الفاتورة %s لا يساوي الصافي+العمولة+الضريبة (مقروء %s، المتوقع %s)؛ قراءة آلية غير موثقة والبند لم يُعتمد" % (v.number, fl["seen"], fl["expected"]),
+            u = {"reason": "إجمالي بند في الفاتورة %s لا يساوي الصافي+العمولة+الضريبة (مقروء %s، المتوقع %s)؛ قراءة آلية غير موثقة؛ المطبوع محفوظ منفصلاً عن المحسوب" % (v.number, fl["seen"], fl["expected"]),
                  "invoice": v.number, "code": fl["code"], "file": b.file, "page": fl["page"]}
             unresolved.append(u)
             for r in b.receipts:
@@ -190,8 +203,8 @@ def _ocr_review(b, res_by, unresolved):
             unresolved.append(u)
             out.setdefault(r.sto, item_key(u))
         if res is not None and res.issues:
-            u = {"reason": "قراءة OCR: تعارض بين المطبوع والمحسوب (قد يكون خطأ قراءة) يلزم مراجعة الصفحة", "sto": r.sto,
-                 "file": b.file, "page": r.pages[0] if r.pages else None, "why": "قراءة آلية (غالباً خطأ قراءة لا خطأ مستند): " + "؛ ".join(i.text for i in res.issues if i.code != "no_invoice")[:300]}
+            u = {"reason": READ_CONFLICT[src], "sto": r.sto,
+                 "file": b.file, "page": r.pages[0] if r.pages else None, "why": "تعارض يحتاج فحص المطبوع؛ لا يُرجّح خطأ القراءة أو المستند من الحساب وحده: " + "؛ ".join(i.text for i in res.issues if i.code != "no_invoice")[:300]}
             unresolved.append(u)
             out[r.sto] = item_key(u)
     return out
@@ -203,14 +216,18 @@ def _read_cached(bundle_path: str, cache_dir: str | None):
     if not cache_dir:
         return extract.read_bundle(bundle_path)
     import hashlib, pickle
-    h = hashlib.sha256(open(bundle_path, "rb").read()).hexdigest()[:20] + ("-vlm" if os.environ.get("VLM_URL") else "")
-    p = os.path.join(cache_dir, f"bundle-{h}.pkl")
-    if os.path.exists(p):
-        try:
-            with open(p, "rb") as f:
-                return pickle.load(f)
-        except Exception:  # noqa: BLE001
-            pass
+    base = hashlib.sha256(open(bundle_path, "rb").read()).hexdigest()[:20]
+    h = base + ("-vlm" if os.environ.get("VLM_URL") else "")
+    p = os.path.join(cache_dir, f"bundle-{h}-evidence-v1.pkl")
+    # A rebuild after review keeps the model's saved reading even when the model is off now: falling back to OCR
+    # would re-read the bundle differently and replace the reviewed items.
+    for q in (p,) if os.environ.get("VLM_URL") else (os.path.join(cache_dir, f"bundle-{base}-vlm-evidence-v1.pkl"), p):
+        if os.path.exists(q):
+            try:
+                with open(q, "rb") as f:
+                    return pickle.load(f)
+            except Exception:  # noqa: BLE001
+                pass
     b = extract.read_bundle(bundle_path)
     try:
         os.makedirs(cache_dir, exist_ok=True)
@@ -221,13 +238,77 @@ def _read_cached(bundle_path: str, cache_dir: str | None):
     return b
 
 
+def _tender_key(t):
+    r"""Tender numbers come in many forms (MED-2026-339, NPT2323\23 …). They are compared without spaces and with
+    / \ - _ as one separator, because a file name cannot hold / or \ (NPT2323\23 is saved as NPT2323-23)."""
+    return re.sub(r"\s+", "", re.sub(r"[\\/\-_]+", "/", str(t))).upper()
+
+
+# A tender number inside a printed value: «NUPCO : (NPT0020/22)», «REF : NUPCO : MED-2026-327».
+TENDER_TOKEN = re.compile(r"[A-Z]{2,}[A-Z0-9]*(?:[-/\\][A-Z0-9]+)+", re.I)
+
+
+def clean_tender(value):
+    """The tender number inside a printed value («NUPCO : (NPT0020/22)» → «NPT0020/22»); the value itself otherwise."""
+    m = TENDER_TOKEN.search(re.sub(r"\s*([-/\\])\s*", r"\1", str(value or "")))
+    return m.group(0).upper() if m else (str(value).strip() or None)
+
+
+def bundle_tenders(b, bundle_path=None):
+    """[(page, printed tender)] of every document that prints one. A scanned bundle has them from the model reading;
+    a text bundle from its purchase-order pages (extract.parse_po_pages)."""
+    pages = list(getattr(b, "tender_pages", []) or [])
+    if not pages:
+        pages = [x for po in b.pos for x in po.__dict__.get("tender_pages", [])]
+    return sorted(set(pages))
+
+
+def first_po_tender(b, pages):
+    """Owner's rule (2026-10-26): the competition of a bundle is the tender printed on its first purchase order,
+    never the file name. None when no purchase order prints one."""
+    po_pages = [(n, v) for n, v in pages if b.page_types.get(n) == "po"]
+    return clean_tender(po_pages[0][1]) if po_pages else None
+
+
+def tender_issues(b, comp_no=None, pages=None):
+    """Every document whose printed tender number differs from the bundle's competition (the tender of its first
+    purchase order; without one, the number most documents print) is held for review with its page."""
+    from collections import Counter
+    pages = pages if pages is not None else getattr(b, "tender_pages", [])
+    if not pages:
+        return []
+    counts = Counter(_tender_key(v) for _, v in pages)
+    if comp_no:
+        ref, shown = _tender_key(comp_no), comp_no
+    else:
+        ref, n = counts.most_common(1)[0]
+        shown = next(v for _, v in pages if _tender_key(v) == ref)
+        if n * 2 <= len(pages):
+            ref = None                                               # no clear majority: every page is checked by a person
+    out = []
+    for n, v in pages:
+        # Equal, or printed whole inside a longer value such as «NUPCO : MED-2026-327».
+        if ref is not None and (_tender_key(v) == ref or re.search(r"(?<![A-Z0-9])" + re.escape(ref) + r"(?![A-Z0-9])", _tender_key(v))):
+            continue
+        pty = b.page_types.get(n)
+        holds = ([r.sto for r in b.receipts if n in r.pages] if pty == "receipt" else
+                 [r.sto for r in b.receipts if any(n in x.pages and x.number == r.pon for x in b.pos)] if pty == "po" else
+                 [r.sto for r in b.receipts if any(n in x.pages and x.number == r.invoice_no for x in b.invoices)] if pty == "invoice" else [])
+        why = f"رقم المنافسة المطبوع «{v}» يخالف رقم المنافسة «{shown}»" if ref is not None else f"رقم المنافسة المطبوع «{v}» غير محسوم بين مستندات الربطة"
+        out.append({"reason": "تعارض هوية المنافسة: " + why, "file": b.file, "page": n, "why": why, "_holds": holds})
+    return out
+
+
 def collect_batch(bundle_path: str, contract_path: str, code_map=None, context_paths=None, cache_dir=None):
     """context_paths: ربطات مجاورة من المنافسة نفسها تُقرأ لمطابقة الفواتير المشتركة فقط (سنداتها لا تدخل صفوف التقرير)."""
     code_map = code_map or {}
     m = re.match(r"(.+)-(\d{2})-\d{3}\.pdf$", os.path.basename(bundle_path))     # رقم المنافسة-رقم الدفعة-رقم الربطة.pdf
-    comp_no = m.group(1) if m else os.path.splitext(os.path.basename(bundle_path))[0]      # الاسم لا يشترط صيغة معينة
-    rules = engine.read_rules(contract_path, comp_no)           # contract_path=None: فحص دفعة بلا عقد (انظر Rules.no_contract)
     b = _read_cached(bundle_path, cache_dir)
+    # The competition is the tender printed on the first purchase order (owner, 2026-10-26); the file name is only a
+    # fallback when no order prints one (its batch/bundle numbers still fill those two columns).
+    tpages = bundle_tenders(b, bundle_path)
+    comp_no = first_po_tender(b, tpages) or (m.group(1) if m else os.path.splitext(os.path.basename(bundle_path))[0])
+    rules = engine.read_rules(contract_path, comp_no)           # contract_path=None: فحص دفعة بلا عقد (انظر Rules.no_contract)
     results = engine.check_bundle(b, rules)
     rules = getattr(b, "inferred_rules", rules)                 # بلا عقد: القاعدة المستنتجة من الربطة (عمولة وأساس ضريبة)
     engine.apply_cumulative_cap(results, rules)
@@ -262,11 +343,18 @@ def collect_batch(bundle_path: str, contract_path: str, code_map=None, context_p
     for num, inv in invs.items():
         cit = [r for r in b.receipts if r.invoice_no == num and first_seen.get(r.sto) is r]     # النسخة المكررة لا تدخل المطابقة
         cit_ctx = [(r, f) for r, f in ctx_receipts if r.invoice_no == num and r.sto not in {x.sto for x in cit}]
+        if getattr(inv, "collective", False) and not inv.items:
+            for r in cit:                                         # فاتورة جماعية: السند منسوب لها بسطره (صافيه) إن ورد فيها
+                a = inv.allocations.get(r.sto)
+                attribution[r.sto] = ({"clear": True, "amount": str(a), "why": None, "pairs": []} if a is not None else
+                                      {"clear": False, "amount": None, "pairs": [],
+                                       "why": "السند غير مذكور في الفاتورة الجماعية %s رغم أنه يذكر رقمها" % num})
+            continue
         by_copy = defaultdict(list)
         for it in inv.items:
             by_copy[it.copy].append({"code": it.code, "qty": it.qty, "price": it.unit_price, "amount": it.total,
                                      "net": it.net, "nupco": it.nupco, "vat": it.vat, "page": it.ev.page, "copy": it.copy,
-                                     "file": b.file})
+                                     "file": b.file, "sto": it.sto or None})        # رقم السند المطبوع على صف الفاتورة إن وُجد
         out = IM.match_invoice(
             [{"sto": r.sto, "invoice_no": num, "lines": [{"code": i.code, "qty": i.qty, "price": i.unit_price, "page": i.ev.page, "file": b.file}
                                                           for i in r.items]} for r in cit]
@@ -279,17 +367,48 @@ def collect_batch(bundle_path: str, contract_path: str, code_map=None, context_p
             item = review_item(num, rv)
             if item is not None:                                   # بنود فاتورة سندات الربطات الأخرى لا تُذكر في فحص الدفعة
                 unresolved.append(item)
+    missing_inv = []                                                 # سندات بلا فاتورة في الربطة: محجوزة للمراجعة، لا «سليم»
     for r in b.receipts:
         if first_seen.get(r.sto) is not r:
             continue                                                 # النسخة المكررة محالة ببندها الخاص
         if r.invoice_no not in invs:
-            unresolved.append({"reason": "السند يذكر فاتورة غير موجودة في الربطة", "sto": r.sto, "invoice": r.invoice_no,
-                               "file": b.file, "page": r.pages[0] if r.pages else None})
-        elif not attribution.get(r.sto, {}).get("clear"):
+            listed = [n for n, v in invs.items() if getattr(v, "collective", False)]
+            holder = [n for n in listed if r.sto in invs[n].allocations]
+            why = (("السند مدرج في الفاتورة الجماعية %s لكنه يذكر رقماً آخر للفاتورة" % "، ".join(holder)) if holder else
+                   ("لا يرد السند كذلك في الفاتورة الجماعية للدفعة %s" % "، ".join(listed)) if listed else None)
+            u = {"reason": "السند يذكر فاتورة غير موجودة في الربطة", "sto": r.sto, "invoice": r.invoice_no,
+                 "file": b.file, "page": r.pages[0] if r.pages else None, "why": why}
+            unresolved.append(u)
+            missing_inv.append(u)
+        elif not attribution.get(r.sto, {}).get("clear") and not any(u.get("sto") == r.sto and u.get("code") for u in unresolved)                 and not r.__dict__.get("incomplete_rows"):           # an unread row is referred once, as such (engine: items_unread)
+            # (a receipt line already referred by the invoice matching with its own reason is not referred twice)
             unresolved.append({"reason": "بنود السند لم تُنسب للفاتورة بوضوح", "sto": r.sto, "invoice": r.invoice_no,
                                "file": b.file, "page": r.pages[0] if r.pages else None,
                                "why": attribution.get(r.sto, {}).get("why")})
     review_stos = _ocr_review(b, res_by, unresolved)
+    if missing_inv:
+        from job_pipeline import item_key
+        for u in missing_inv:
+            if not res_by.get(u["sto"]) or res_by[u["sto"]].ok:          # سند غير سليم بسبب مستقل يبقى حكمه، والبند يوضح الفاتورة
+                review_stos.setdefault(u["sto"], item_key(u))
+    for u in tender_issues(b, first_po_tender(b, tpages), tpages):  # هوية المنافسة في كل مستند مقابل أول أمر شراء
+        from job_pipeline import item_key
+        unresolved.append(u)
+        for sto in u.pop("_holds"):
+            review_stos.setdefault(sto, item_key(u))
+    absent = {}                                                      # سندات تعاميدها غير موجودة في الربطة
+    for r in b.receipts:
+        res = res_by.get(r.sto)
+        if res is not None and res.po_absent and first_seen.get(r.sto) is r:
+            absent.setdefault(r.pon or "(بلا رقم تعميد)", []).append(r)
+    if absent:
+        from job_pipeline import item_key
+        u = {"reason": "التعميد غير موجود في الربطة (%s): لم تُطابق أصناف السندات وأسعارها وموعد التوريد بالتعميد؛ أرفق التعاميد أو راجعها يدوياً"
+                       % "، ".join(sorted(absent)), "file": b.file, "page": min((r.pages[0] for rs in absent.values() for r in rs if r.pages), default=1)}
+        unresolved.append(u)
+        for rs in absent.values():
+            for r in rs:
+                review_stos.setdefault(r.sto, item_key(u))
     if dup_items:
         from job_pipeline import item_key
         for u in dup_items:                                          # حكم السند المكرر محجوز حتى يحسمه المراجع
@@ -305,11 +424,20 @@ def collect_batch(bundle_path: str, contract_path: str, code_map=None, context_p
                                     ev["ref_receipt"], (rules.commission * 100).normalize(), int(rules.vat_rate * 100), mode_ar,
                                     (" (أُخذ الأساس من السند %s لأنه أول سند فيه أصناف خاضعة)" % tax_ref) if tax_ref and tax_ref != ev["ref_receipt"] else ""))
         else:
-            unresolved.append({"reason": "لم يُستخرج أي سند من الربطة: لا يمكن اعتماد سند مرجع ولا فحص أي سند (فحص بدون عقد)", "file": b.file, "page": 1})
+            other = sum(1 for t in b.page_types.values() if t == "other")
+            why = (f"لم يُستخرج أي سند: صفحات الربطة ممسوحة ونموذج الرؤية غير متصل، وقارئ OCR الاحتياطي يعرف قالب مستندات واحداً فقط "
+                   f"ولم يتعرّف على {other} من {b.n_pages} صفحات. شغّل نموذج الرؤية ثم أعد الفحص؛ غياب العقد ليس السبب"
+                   if b.source == "ocr" and not os.environ.get("VLM_URL") and other == b.n_pages
+                   else "لم يُستخرج أي سند من الربطة: لا يمكن اعتماد سند مرجع ولا فحص أي سند (فحص بدون عقد)")
+            unresolved.append({"reason": why, "file": b.file, "page": 1})
         from job_pipeline import item_key
         for sto, res in sorted(res_by.items()):                              # بلا عقد لا يُحكم على سند «غير سليم»: كل مخالفة تُحال
             iss = [i for i in res.issues if i.code != "no_invoice"]
-            if iss:
+            held = next((x for x in unresolved if x.get("sto") == sto and x.get("reason") in READ_CONFLICT.values()), None)
+            if iss and held is not None:
+                # A scanned receipt already referred for the same findings: one decision, not two.
+                held["why"] = held.get("why", "") + "؛ وبلا عقد يُحال بدل الحكم عليه"
+            elif iss:
                 u = {"reason": "سند يخالف قاعدة السند المرجع (الأول في الدفعة) أو فحوصه الداخلية: يُحال للمراجعة بدل الحكم عليه بلا عقد",
                      "sto": sto, "file": b.file, "page": res.pages[0] if res.pages else None, "why": "؛ ".join(i.text for i in iss)[:400]}
                 unresolved.append(u)
@@ -323,6 +451,18 @@ def collect_batch(bundle_path: str, contract_path: str, code_map=None, context_p
             "attribution": attribution, "unresolved": unresolved, "review_stos": review_stos, "comp_no": comp_no, "bundle_file": b.file,
             "contract_pages": pdfx.page_count(contract_path) if contract_path else 0, "items_page": items_page,
             "no_contract_note": no_contract_note}
+
+
+def reviewer_sound(data, resolved_keys):
+    """Receipts whose machine findings were all put to the reviewer (a scanned page's reading conflict, or a batch
+    without contract) and that the reviewer confirmed «سليم»: the findings were the reading, not the document.
+    A «فيه مشكلة» decision never reaches here (that receipt is excluded from the report)."""
+    from job_pipeline import item_key
+    routed = {}
+    for u in data.get("unresolved", []):
+        if u.get("sto") and (u.get("reason") in READ_CONFLICT.values() or u.get("reason", "").startswith("سند يخالف قاعدة السند المرجع")):
+            routed[u["sto"]] = item_key(u)
+    return {sto for sto, k in routed.items() if k in (resolved_keys or set())}
 
 
 # ------------------------------------------------------------------ كتابة تقرير الدفعة
@@ -339,8 +479,7 @@ def write_batch_report(bundle_path: str, contract_path: str, out_path: str, code
     rules, b = data["rules"], data["bundle"]
     # الترتيب ثابت: بترتيب ظهور السند في الملف (أول صفحة له) ثم رقمه؛ لا يتغير بالمراجعة ولا بأخطاء قراءة الأرقام
     excluded = sorted(set(exclude_stos or ()) & set(data["results"]))
-    stos = sorted((s for s in data["results"] if s not in set(excluded)),
-                  key=lambda s: (min(data["receipts"][s].pages) if data["receipts"][s].pages else 10 ** 9, s))          # قالب 318: ترتيب تصاعدي برقم السند (تقارير 144 القديمة بترتيب ظهور السندات: اختلاف موثق)
+    stos = batch_receipt_ids(data, excluded)  # ترتيب الورق، وليس ترتيب أرقام السندات.
     wb = openpyxl.load_workbook(T.writer_template_path("batch"))
     ws1, ws2, ws3 = wb["تقرير السندات"], wb["الأصناف"], wb["المطابقة"]
     # صيغ الصف الأول وتنسيقه من القالب نفسه
@@ -421,8 +560,9 @@ def write_batch_report(bundle_path: str, contract_path: str, out_path: str, code
         ws1.cell(r, 14, "لا")
         ws1.cell(r, 15, 0)
         held = sto in data["review_stos"] and data["review_stos"][sto] not in (resolved_keys or set())
-        ws1.cell(r, 20, None if held else ("سليم" if res.ok else "غير سليم محاسبياً"))
-        ws1.cell(r, 21, None if held else _reason_text(res))
+        sound = res.ok or sto in reviewer_sound(data, resolved_keys)
+        ws1.cell(r, 20, None if held else ("سليم" if sound else "غير سليم محاسبياً"))
+        ws1.cell(r, 21, None if held or sound else _reason_text(res))
         ws1.cell(r, 22, comp)
         formulas(ws1, r)
         # ---- الشيت 2: صف لكل صنف

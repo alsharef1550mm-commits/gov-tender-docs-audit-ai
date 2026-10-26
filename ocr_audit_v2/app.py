@@ -25,7 +25,10 @@ import gradio as gr
 import pypdfium2 as pdfium
 
 import job_pipeline as JP
+import model_service as MS
+import model_password as MP
 import landing as L
+import ui_workspace as UI
 
 # العرض التقديمي داخل النظام: صفحة HTML مستقلة تُعرض في إطار، فلا يختلط كودها بكود الواجهة
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -41,9 +44,9 @@ if PRES_FILE:
 
 
 def pres_link_html() -> str:
-    return ("<div style='text-align:center;margin:.6rem 0'><a href='" + html.escape(PRES_URL) + "' target='_blank' rel='noopener' "
-            "style='display:inline-block;padding:.7rem 1.4rem;border-radius:14px;background:#0f766e;color:#fff;font-weight:800;text-decoration:none'>"
-            "🎬 العرض التقديمي للمشروع · Project presentation</a></div>") if PRES_URL else ""
+    return ("<a class='presentation-entry-link' href='" + html.escape(PRES_URL) + "' target='_blank' rel='noopener' "
+            "aria-label='العرض التقديمي للمشروع — يفتح في تبويب جديد'>"
+            "العرض التقديمي · Presentation ↗</a>") if PRES_URL else ""
 
 
 def pres_tab_html() -> str:
@@ -59,8 +62,8 @@ def pres_tab_html() -> str:
 CSS = """
 :root{--brand:#17365D;--brand2:#1F4E79;--soft:#E1EFFA;--soft2:#F3F8FD;--line:#9BB3C9;--ink:#17212F;--mut:#5B6778;--card:#FFFFFF;--track:#E9EEF4;
       --ok:#1E7B4B;--ok-bg:#E4F5EC;--warn:#B45309;--warn-bg:#FFF4E0;--bad:#B3261E;--bad-bg:#FDEAE8;--info:#1F4E79;--info-bg:#E1EFFA}
-.dark{--brand:#A9CDF2;--brand2:#2F6FB0;--soft:#1E3550;--soft2:#1A2A3A;--line:#3F5A75;--ink:#E6EDF5;--mut:#9FB0C3;--card:#17232F;--track:#243546;
-      --ok:#5FD39A;--ok-bg:#12382A;--warn:#F2B25C;--warn-bg:#3B2A10;--bad:#FF9A92;--bad-bg:#40191A;--info:#9CC9F5;--info-bg:#1E3550}
+.dark{--brand:#e8e8e6;--brand2:#2a9d8f;--soft:#1f2022;--soft2:#161718;--line:#2c2e31;--ink:#ececea;--mut:#9b9ea4;--card:#161718;--track:#26282b;
+      --ok:#5cc28f;--ok-bg:#15241c;--warn:#e0a85a;--warn-bg:#2a2115;--bad:#f0877f;--bad-bg:#2c1716;--info:#c9cbcf;--info-bg:#1f2022}
 .gradio-container{direction:rtl;font-family:'Tahoma','Segoe UI',Arial,sans-serif !important;width:100%!important;max-width:1440px!important;margin-inline:auto!important;box-sizing:border-box;padding-inline:clamp(12px,2vw,28px)!important}
 .gradio-container>main{width:100%;max-width:none!important;padding:16px 0!important;box-sizing:border-box}
 .gradio-container .block,.gradio-container .form,.gradio-container .tabs,.gradio-container .tabitem{min-width:0;box-sizing:border-box}
@@ -86,22 +89,22 @@ h1.app-title{color:var(--brand);font-size:1.55rem;margin:.2rem 0 .1rem;font-weig
 .dot{width:.62rem;height:.62rem;border-radius:50%;background:currentColor;display:inline-block}
 .dot.live{animation:pulse 1.3s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
-.pbar{position:relative;height:20px;background:var(--track);border-radius:999px;overflow:hidden;margin:.7rem 0 .3rem;border:1px solid var(--line);direction:ltr}
-.pfill{height:100%;width:var(--to);border-radius:999px;background-image:linear-gradient(135deg,rgba(255,255,255,.28) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.28) 50%,rgba(255,255,255,.28) 75%,transparent 75%);background-size:28px 28px}
-.pfill.anim{animation:grow var(--dur) cubic-bezier(.12,.6,.25,1) forwards,stripes 1.2s linear infinite;animation-delay:calc(var(--el) * -1),0s}
+.pbar{position:relative;height:8px;background:var(--track);border-radius:999px;overflow:hidden;margin:.7rem 0 .3rem;border:1px solid var(--line);direction:ltr}
+.pfill{height:100%;width:var(--to);border-radius:999px}
+.pfill.anim{animation:grow var(--dur) cubic-bezier(.12,.6,.25,1) forwards;animation-delay:calc(var(--el) * -1)}
 @keyframes grow{from{width:var(--from)}to{width:var(--to)}}
 @keyframes stripes{from{background-position:0 0}to{background-position:28px 0}}
-.pfill.info{background-color:var(--brand2)}.pfill.warn{background-color:#D98324}.pfill.ok{background-color:#1E9B5E}.pfill.bad{background-color:#C8362D}
+.pfill.info{background-color:var(--brand2)}.pfill.warn{background-color:var(--warn)}.pfill.ok{background-color:var(--ok)}.pfill.bad{background-color:var(--bad)}
 .stepper{display:flex;gap:.4rem;margin:.6rem 0 .2rem;direction:ltr}
 .step{flex:1;text-align:center;font-size:.82rem;color:var(--mut)}
 .step .c{width:28px;height:28px;margin:0 auto .25rem;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;border:2px solid var(--line);background:var(--card);color:var(--mut)}
-.step.done .c{background:var(--ok);border-color:var(--ok);color:#fff}.step.on .c{background:var(--brand2);border-color:var(--brand2);color:#fff;box-shadow:0 0 0 4px rgba(31,78,121,.18)}
-.step.on{color:var(--brand);font-weight:700}.step.done{color:var(--ok)}
+.step.done .c{background:transparent;border-color:var(--ok);color:var(--ok)}.step.on .c{background:var(--brand2);border-color:var(--brand2);color:#fff}
+.step.on{color:var(--ink);font-weight:700}.step.done{color:var(--ok)}
 .chips{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.6rem}
 .chip{background:var(--soft2);border:1px solid var(--line);border-radius:10px;padding:.35rem .7rem;font-size:.86rem}
 .chip b{color:var(--brand)}
 .err{background:var(--bad-bg);border:1px solid var(--bad);border-radius:10px;padding:8px 12px;margin-top:.6rem}.err,.err *{color:var(--bad) !important}
-.synth{background:#F1E9FF;border:1px solid #C9B2F2;border-radius:10px;padding:6px 10px;margin:.4rem 0}.synth,.synth *{color:#4A2B87 !important}
+.synth{background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin:.4rem 0}.synth,.synth *{color:var(--ink) !important}
 .hint{color:var(--mut);font-size:.85rem}
 .sumline{font-weight:700;color:var(--brand);margin:.2rem 0 .5rem}
 .tab-nav button{font-weight:700}
@@ -114,20 +117,34 @@ h1.app-title{color:var(--brand);font-size:1.55rem;margin:.2rem 0 .1rem;font-weig
 .pages figure.focus,.sec figure.focus{border:2px solid var(--warn)}
 .pages figcaption,.sec figcaption{font-weight:700;color:var(--brand);margin:.15rem .3rem .35rem}
 .pages img.zoomable,.sec img.zoomable{width:100%;display:block;border-radius:6px;cursor:default;background:#fff}
-button.lens-toggle{background:var(--soft);color:var(--brand);border:1px solid var(--line);border-radius:999px;padding:.3rem .9rem;font-weight:700;cursor:pointer;font-family:inherit}
+button.lens-toggle{background:transparent;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:.3rem .9rem;font-weight:700;cursor:pointer;font-family:inherit}
 button.lens-toggle:hover{background:var(--brand2);color:#fff}
 .lens-toggle .st::before{content:"متوقفة"}
 .lens-toggle.on{background:var(--brand2);color:#fff;border-color:var(--brand2)}
 .lens-toggle.on .st::before{content:"مفعّلة"}
-#lens{position:fixed;width:240px;height:240px;border-radius:50%;border:3px solid #2F6FB0;box-shadow:0 8px 28px rgba(0,0,0,.5);pointer-events:none;display:none;z-index:99999;background-repeat:no-repeat;background-color:#fff}
-#lens-tag{position:fixed;z-index:100000;pointer-events:none;display:none;background:#17365D;color:#fff;font-size:.75rem;font-weight:700;padding:.1rem .5rem;border-radius:999px}
+#lens{position:fixed;width:240px;height:240px;border-radius:50%;border:2px solid #2a9d8f;box-shadow:0 8px 28px rgba(0,0,0,.5);pointer-events:none;display:none;z-index:99999;background-repeat:no-repeat;background-color:#fff}
+#lens-tag{position:fixed;z-index:100000;pointer-events:none;display:none;background:#161718;color:#fff;font-size:.75rem;font-weight:700;padding:.1rem .5rem;border-radius:999px}
 """
 CSS += L.LANDING_CSS
 
-THEME = gr.themes.Soft(primary_hue=gr.themes.colors.blue, neutral_hue=gr.themes.colors.slate).set(button_primary_background_fill="#1F4E79",
-                                                                               button_primary_background_fill_hover="#17365D",
-                                                                               button_primary_text_color="#FFFFFF")
+# Neutral greys built from lightness steps; the teal accent is kept for the primary action and the selected choice.
+_SURFACES = dict(body_background_fill="#0e0f10", background_fill_primary="#161718", background_fill_secondary="#1f2022",
+                 block_background_fill="#161718", border_color_primary="#2c2e31", block_border_color="#2c2e31",
+                 block_label_background_fill="#1f2022", block_label_text_color="#9b9ea4", block_title_text_color="#ececea",
+                 body_text_color="#ececea", body_text_color_subdued="#9b9ea4", input_background_fill="#0e0f10",
+                 input_border_color="#2c2e31", button_secondary_background_fill="#1f2022",
+                 button_secondary_background_fill_hover="#26282b", button_secondary_text_color="#ececea",
+                 button_secondary_border_color="#2c2e31", checkbox_label_background_fill="#1f2022",
+                 checkbox_label_background_fill_hover="#26282b", checkbox_label_background_fill_selected="#2a9d8f",
+                 checkbox_label_text_color_selected="#FFFFFF", table_even_background_fill="#161718", table_odd_background_fill="#161718")
+THEME = gr.themes.Soft(primary_hue=gr.themes.colors.teal, neutral_hue=gr.themes.colors.zinc).set(
+    button_primary_background_fill="#2a9d8f", button_primary_background_fill_hover="#238a7e", button_primary_text_color="#FFFFFF",
+    **_SURFACES, **{k + "_dark": v for k, v in _SURFACES.items()})
 LENS_JS = """() => {
+  // Owner-requested site-wide dark appearance; no model or audit state changes.
+  document.body.classList.add('dark'); document.documentElement.style.colorScheme = 'dark';
+  const keepDark = new MutationObserver(() => { if (!document.body.classList.contains('dark')) document.body.classList.add('dark'); });
+  keepDark.observe(document.body, {attributes:true, attributeFilter:['class']});
   if (window.__lensInstalled) return; window.__lensInstalled = true;
   const lens = document.createElement('div'); lens.id = 'lens'; document.body.appendChild(lens);
   const tag = document.createElement('div'); tag.id = 'lens-tag'; document.body.appendChild(tag);
@@ -151,13 +168,99 @@ LENS_JS = """() => {
     const t = e.target && e.target.closest ? e.target : null;
     if (!t) return;
     if (t.closest('.lens-toggle')) { on = !on; sync(); if (!on) hide(); return; }   // العدسة اختيارية: تُفعَّل بالزر فقط
+    if (t.closest('.model-switch')) { const b = document.querySelector('#model-toggle-btn'); if (b) b.click(); return; }   // مفتاح تشغيل النموذج
     if (on && t.closest('img.zoomable')) zi = (zi + 1) % ZS.length;
   });
   document.addEventListener('scroll', hide, true);
 }"""
 LENS_JS = LENS_JS.replace("document.addEventListener('scroll', hide, true);", "document.addEventListener('scroll', hide, true);" + L.LANG_JS)
-NOTE = ("نسخة تجريبية خاصة. لا يُحكم بإقفال ولا تُعلن دقة: كل ما لا تثبته المستندات يُحال للمراجعة بدليل الصفحة، "
-        "ويبقى في Excel خلية فارغة وخلية الإقفال «يتطلب مراجعة». الحساب النهائي بقواعد العقد (Decimal) وليس بنموذج لغوي.")
+LENS_JS = LENS_JS.replace("document.addEventListener('scroll', hide, true);", "document.addEventListener('scroll', hide, true);" + UI.JS)
+MODEL_CSS = """
+.model-switch{display:inline-flex;align-items:center;gap:10px;cursor:pointer;user-select:none;padding:6px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)!important;min-height:44px}
+.model-switch .track{position:relative;width:44px;height:24px;border-radius:12px;background:#3a3c40;transition:background .3s;flex:0 0 auto}
+.model-switch .knob{position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;background:#ececea;transition:right .2s}
+.model-switch.on .track{background:var(--ok)}.model-switch.on .knob,.model-switch.starting .knob{right:22px}
+.model-switch.starting .track{background:var(--warn)}.model-switch.stopping .track{background:#55585d}.model-switch.error .track{background:var(--bad)}
+.model-switch .label{font-weight:600;color:var(--ink)!important}.model-switch .state{font-size:.85em;color:var(--mut)!important}
+.hidden-btn{display:none!important}
+"""
+MODEL_STEPS_MIN = 10        # المدة التقريبية لتجهيز الخادم وتحميل النموذج
+
+
+def _riyadh(iso):
+    try:
+        return (dt.datetime.fromisoformat(iso) + dt.timedelta(hours=3)).strftime("%H:%M")
+    except (TypeError, ValueError):
+        return "—"
+
+
+def model_switch_html(s=None):
+    """مفتاح بنمط الآيفون: رمادي = مقفل، أصفر = يُشغَّل، أخضر = شغال، أحمر = خطأ."""
+    s = s or MS.load_state()
+    st = s.get("status", "off")
+    if st == "on":
+        text = f"شغال — يتوقف تلقائياً الساعة {_riyadh(s.get('stop_utc'))} بتوقيت السعودية (سقف {s.get('cap_usd', '—')}$)"
+    elif st == "starting":
+        try:
+            mins = int((dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(s["started_utc"])).total_seconds() // 60)
+        except (KeyError, ValueError):
+            mins = 0
+        text = f"جارٍ التشغيل — {s.get('step') or 'تجهيز'} ({mins} من نحو {MODEL_STEPS_MIN} دقائق)"
+    elif st == "stopping":
+        text = "جارٍ الإيقاف…"
+    elif st == "error":
+        text = "تعذّر: " + html.escape(s.get("message") or "")
+    else:
+        text = "مقفل — اضغط للتشغيل"
+    return (f"<div class='model-switch {st}' role='switch' aria-checked='{str(st in ('on', 'starting')).lower()}' "
+            f"title='تشغيل/إيقاف نموذج الذكاء الاصطناعي'><span class='track'><span class='knob'></span></span>"
+            f"<span class='label'>نموذج الذكاء الاصطناعي</span><span class='state'>{text}</span></div>")
+
+
+_MODEL_ENV = ("VLM_URL", "VLM_MODEL", "VLM_FORMAT")
+
+
+def model_view():
+    """نبضة المفتاح: تُحدِّث الحالة، وتوجّه الفحوص الجديدة إلى النموذج حين يكون شغالاً."""
+    s = MS.status()
+    if s.get("status") == "on" and s.get("url"):
+        os.environ.update(VLM_URL=s["url"], VLM_MODEL="ft", VLM_FORMAT="pairs")
+    elif os.environ.get("VLM_URL", "").startswith(f"http://127.0.0.1:{MS.PORT}"):
+        for k in _MODEL_ENV:
+            os.environ.pop(k, None)
+    return model_switch_html(s)
+
+
+def _pw_msg(text, ok=False):
+    return f"<div class='hint' style='color:{'#1a7f37' if ok else '#c62828'}'>{html.escape(text)}</div>" if text else ""
+
+
+def model_toggle():
+    """الإيقاف فوري بلا باسورد؛ التشغيل يفتح خانة الباسورد أولاً."""
+    s = MS.status()
+    if s.get("status") in ("on", "starting") or (s.get("status") == "error" and s.get("pod_id")):
+        MS.save_state(status="stopping", step=None)
+        threading.Thread(target=MS.stop, daemon=True).start()
+        return model_view(), gr.update(visible=False), ""
+    if s.get("status") == "error":
+        # الضغط على «تعذّر» يلغي العملية ويعيد المفتاح رمادياً؛ لا يفتح التشغيل من جديد
+        MS.save_state(status="off", step=None, message="النموذج مقفل")
+        return model_view(), gr.update(visible=False), _pw_msg("أُلغيت العملية", ok=True)
+    if s.get("status") == "stopping":
+        return model_view(), gr.update(visible=False), ""
+    if not MP.is_set():
+        return model_view(), gr.update(visible=False), _pw_msg("لم يُضبط باسورد التشغيل بعد: شغّل على الجهاز الأمر python ocr_audit_v2/model_password.py")
+    return model_view(), gr.update(visible=True), _pw_msg("اكتب باسورد تشغيل النموذج ثم اضغط «تشغيل النموذج»", ok=True)
+
+
+def model_unlock(password):
+    ok, why = MP.check(password)
+    if not ok:
+        return model_view(), gr.update(visible=True), _pw_msg(why), ""
+    MS.start()
+    return model_view(), gr.update(visible=False), _pw_msg("تم التحقق؛ بدأ تشغيل النموذج", ok=True), ""
+
+
 _THREADS: dict[str, threading.Thread] = {}
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -175,7 +278,7 @@ def _orient_hint():
     items = [
         "<b>وضوح الطباعة:</b> أن تكون الأوراق مطبوعة وممسوحة بوضوح، خالية من الشوائب والظلال والكتابة فوق الأرقام، ليقرأها النموذج بدقة.",
         "<b>الاتجاه:</b> أن تكون كل الأوراق بالاتجاه الأفقي المطابق للصورة المصغرة (العنوان في الأعلى والنص مقروء دون تدوير). "
-        "وإن كان في الملف صفحات مقلوبة أو مُدارة فاستعمل تبويب «🧭 أداة تصحيح الاتجاه» قبل الرفع.",
+        "وإن كان في الملف صفحات مقلوبة أو مُدارة فاستعمل تبويب «أداة تصحيح الاتجاه» قبل الرفع.",
         "<b>الترتيب:</b> أن تُرتَّب المستندات بتسلسلها: التعميد، ثم سند الاستلام، وتحت كل سند الفاتورة التي تبرره.",
         "<b>العقد:</b> يُفضَّل رفع عقد المنافسة إن وُجد؛ فبه تُتحقق العمولة والضريبة والغرامة ومبلغ السداد وتُكتشف ملاحظات أكثر "
         "(وبدونه يُعتمد السند الأول مرجعاً).",
@@ -186,8 +289,8 @@ def _orient_hint():
             + (f"<figure style='width:250px;max-width:100%;margin:0'><img src='{src}' alt='سند الاستلام الاصطناعي STO0000005253 من المنافسة MED-2026-339 بالاتجاه الصحيح' "
                "style='width:100%;border-radius:8px;border:1px solid #9BB3C9'><figcaption style='font-size:.75rem;line-height:1.6;margin-top:.35rem'>"
                "مثال سند استلام اصطناعي بالشكل المعتمد والاتجاه الصحيح</figcaption></figure>" if src else "")
-            + "<div style='flex:1;min-width:260px'><b>شروط الرفع</b><ol style='margin:.4rem 0 0;padding-inline-start:1.3rem;line-height:1.9'>"
-            + "".join(f"<li>{x}</li>" for x in items) + "</ol></div></div>")
+            + "<div style='flex:1;min-width:min(260px,100%)'>"
+            + "".join(f"<p style='margin:0 0 .7rem;line-height:1.9'>{x}</p>" for x in items) + "</div></div>")
 
 
 def _spawn(job_id: str, mode: str = "run"):
@@ -289,7 +392,7 @@ def _ltr(x):
 
 def status_html(job_id):
     if not job_id:
-        return "<div class='card'><h3>المتابعة</h3><span class='hint'>اختر مهمة أو ابدأ فحصاً جديداً من تبويب «رفع».</span></div>"
+        return UI.empty("لم يبدأ الفحص بعد", "ارفع مستنداتك من تبويب «رفع». ستظهر هنا مراحل القراءة والتدقيق وأي ملاحظة تحتاج انتباهك.")
     m = JP.Job(job_id).load()
     a, b, dur, label, tone, step, live = _bar(m)
     finished = tone == "ok"
@@ -336,9 +439,12 @@ def _rows(m):
 
 def _review_summary(rows):
     if not rows:
-        return "<div class='sumline'>لا بنود للمراجعة في هذه المهمة.</div>"
+        return UI.empty("لا توجد بنود معروضة للمراجعة", "تظهر البنود هنا بعد الفحص؛ خلو هذه القائمة وحده لا يعني اعتماد التقرير.", "≡")
     done = sum(1 for r in rows if r[6] in ("أُدخلت قيمة", "تأكيد خلو المصدر", "قراءة مطابقة", "فيه مشكلة — مستبعد"))
-    return f"<div class='sumline'>بنود المراجعة: {len(rows)} — محسوم: {done} — متبقٍ: {len(rows) - done}</div>"
+    return ("<div class='review-metrics' aria-label='ملخص المراجعة'>"
+            f"<div class='review-metric'><b>{len(rows)}</b>بنود المراجعة</div>"
+            f"<div class='review-metric'><b>{done}</b>محسوم</div>"
+            f"<div class='review-metric pending'><b>{len(rows) - done}</b>بانتظار القرار</div></div>")
 
 
 def _sig(x):
@@ -352,7 +458,7 @@ def tick(job_id, sigs, force=False):
     if sigs.get("job") != job_id:
         sigs, force = {"job": job_id}, True
     if job_id:
-        m = JP.Job(job_id).load()
+        m = JP.reap(JP.Job(job_id))
         out = m.get("output") if m.get("output") and os.path.exists(m["output"]) else None
         if out:
             try:
@@ -364,7 +470,7 @@ def tick(job_id, sigs, force=False):
                  "file": (out, os.path.getmtime(out)) if out else None, "card": job_card_html(job_id)}
         keys = {"status": _status_key(m), "log": len(m.get("log", [])), "card": _status_key(m)}     # توقيع التغيّر الحقيقي بلا الزمن المنقضي: مرور الزمن لا يعيد رسم البطاقة
     else:
-        parts = {"status": status_html(None), "log": "", "rows": [], "sum": "", "file": None, "card": job_card_html(None)}
+        parts = {"status": status_html(None), "log": "", "rows": [], "sum": _review_summary([]), "file": None, "card": job_card_html(None)}
     res = []
     for k in ("status", "log", "rows", "sum", "file", "card"):
         s = _sig(keys.get(k, parts[k]))
@@ -414,8 +520,7 @@ def start(mode_ar, contract, batch_file, comp_files, who, synthetic=False, truth
         return gr.skip(), (f"<div class='err'>الملف المضغوط يحوي {len(batch_paths)} ربطات؛ فحص الدفعة يتطلب ربطة واحدة. "
                            "ارفع الربطة المطلوبة، وضع الربطات المجاورة في «ربطات مجاورة للسياق».</div>"), gr.skip()
     bundles = batch_paths if mode == "batch" else comp_paths
-    if not contract and mode == "competition":                      # فحص الدفعة يجوز بلا عقد (قواعد العقد حينئذ غير متحقق منها)
-        return gr.skip(), "<div class='err'>ارفع عقد المنافسة أولاً.</div>", gr.skip()
+    # الدفعة والمنافسة كلتاهما تجوزان بلا عقد: يُستنتج النمط من السندات ويُحال ما يخالفه، والعقد وحده يحسم الصحيح
     if not bundles:
         return gr.skip(), "<div class='err'>" + ("ارفع ملف الدفعه أولاً." if mode == "batch" else "ارفع ملفات المنافسة أولاً.") + "</div>", gr.skip()
     job = JP.create_job(mode, (contract if isinstance(contract, str) else contract.name) if contract else None,
@@ -434,7 +539,8 @@ def start(mode_ar, contract, batch_file, comp_files, who, synthetic=False, truth
 
 def mode_changed(mode_ar):
     b = mode_ar == "فحص دفعة"
-    lbl = "ارفع عقد المنافسة (اختياري في فحص الدفعة؛ بدونه لا تُتحقق قواعد العقد)" if b else "ارفع عقد المنافسة (إلزامي في فحص المنافسة)"
+    lbl = ("ارفع عقد المنافسة (اختياري؛ بدونه يُعتمد السند الأول مرجعاً ويُحال ما يخالفه)" if b else
+           "ارفع عقد المنافسة (اختياري؛ بدونه يُعتمد النمط الغالب في السندات ويُحال كل تعارض، والعقد يحسم الصحيح)")
     return gr.update(visible=b), gr.update(visible=not b), gr.update(visible=b), gr.update(label=lbl)
 
 
@@ -459,7 +565,7 @@ MAX_GALLERY = 10
 def show_item(job_id, key):
     """بند المراجعة مع **المعاملة كاملة**: صفحات السند المرتبط بفاتورته وتعميده معاً، وصفحة الملاحظة مميّزة."""
     if not job_id or not key:
-        return "", ""
+        return UI.empty("الدليل يظهر هنا", "اختر بنداً من القائمة لعرض صفحات السند والفاتورة والتعميد المرتبطة به.", "▤"), ""
     job = JP.Job(job_id)
     m = job.load()
     p = next((x for x in m.get("pending", []) if x["key"] == key), None)
@@ -472,7 +578,7 @@ def show_item(job_id, key):
     parts = []
     if m.get("synthetic"):
         parts.append("<div class='synth'>⚠ ملف اختبار مصنّع — ليس ربطة حقيقية</div>")
-    parts.append(f"<div class='card'><h3>{_esc(p.get('reason', ''))}</h3>")
+    parts.append(f"<div class='card evidence-meta'><div class='eyebrow'>البند المحدد · {_ltr(key)}</div><h3>{_esc(p.get('reason', ''))}</h3>")
     parts.append(f"<div class='chips'><span class='chip'>السند: <b>{_ltr(p.get('sto') or '—')}</b></span>"
                  f"<span class='chip'>الفاتورة: <b>{_ltr(p.get('invoice') or '—')}</b></span>"
                  f"<span class='chip'>الصنف: <b>{_ltr(p.get('code') or '—')}</b></span>"
@@ -480,9 +586,13 @@ def show_item(job_id, key):
     if related:
         parts.append("<div class='chips'>" + "".join(f"<span class='chip'>{_esc(g['label'])}: <b>{_ltr(_page_range(g['pages']))}</b></span>" for g in related) + "</div>")
     if fm:
-        parts.append(f"<div class='hint' style='margin-top:.4rem'>SHA-256: {_ltr(fm['sha256'])}</div>")
+        parts.append(f"<details class='source-fingerprint'><summary>بصمة ملف المصدر</summary><bdi dir='ltr'>SHA-256: {_esc(fm['sha256'])}</bdi></details>")
     if p.get("why"):
         parts.append(f"<div style='margin-top:.5rem'><b>سبب الإحالة:</b> {_esc(p['why'])}</div>")
+    if p.get("decision"):
+        decision = p["decision"]
+        parts.append(f"<div class='hint' style='margin-top:.5rem'><b>القرار المحفوظ:</b> {_esc(DECISION_AR.get(decision.get('action'), '—'))}"
+                     f"<br>{_esc(decision.get('note', ''))}</div>")
     docs = {}
     groups = {"receipt": [], "invoice": [], "po": [], "other": []}      # السندات لحالها والفواتير لحالها والتعميد لحاله
     seen = set()
@@ -513,7 +623,8 @@ def show_item(job_id, key):
             im.save(buf, "JPEG", quality=82)
             count[0] += 1
             cap = f"{label} — ص{pg}" + ("  ◀ صفحة الملاحظة" if focus else "")
-            return (f"<figure class='{'focus' if focus else ''}'><figcaption>{_esc(cap)}</figcaption>"
+            return (f"<figure class='{'focus' if focus else ''}'><figcaption><span>{_esc(cap)}</span>"
+                    f"<button type='button' class='page-open' aria-label='فتح {_esc(cap)} بحجم كبير'>فتح الصفحة ↗</button></figcaption>"
                     f"<img class='zoomable' alt='{_esc(cap)}' src='data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode()}'></figure>")
         except Exception as e:  # noqa: BLE001
             parts.append(f"<div class='hint'>(تعذّر عرض {_esc(label)} ص{pg}: {_esc(type(e).__name__)})</div>")
@@ -530,7 +641,7 @@ def show_item(job_id, key):
         parts.append(f"<div class='hint'>عُرضت أول {MAX_GALLERY} صفحات من {total}؛ افتح الملف الأصلي للبقية.</div>")
     parts.append("</div>")
     pages_html = ("<div class='lensbar'><button type='button' class='lens-toggle'>🔍 عدسة التقريب: <span class='st'></span></button> "
-                  "<span class='hint'>فعّلها بالضغط، ثم مرّر المؤشر فوق أي صفحة؛ وانقر على الصورة لتغيير القوة (×2.5 ← ×4 ← ×6).</span></div>"
+                  "<span class='hint'>افتح الصفحة لتكبيرها على أي جهاز. على الكمبيوتر يمكنك تفعيل العدسة وتمرير المؤشر؛ النقر على الصورة يغيّر قوة العدسة.</span></div>"
                   f"<div class='secs'>{secs}</div>" + (f"<div class='secs one'>{rest}</div>" if rest else "")) if (secs or rest) else ""
     return pages_html, "".join(parts)
 
@@ -547,6 +658,9 @@ def save_decision(job_id, key, action_ar, value, note, who):
     if not (who or "").strip():
         return "<div class='err'>اسم المراجع إلزامي.</div>"
     try:
+        # The selection list is display state that a page left open across an app restart can lose; the job file is the authority.
+        if key not in {x.get("key") for x in JP.Job(job_id).load().get("pending", [])}:
+            return "<div class='err'>هذا البند ليس من بنود مراجعة المهمة؛ حدّث الصفحة واختر البند من الجدول.</div>"
         JP.review(JP.Job(job_id), key, action, None, note.strip(), who.strip())
     except Exception as e:  # noqa: BLE001
         return f"<div class='err'>تعذّر حفظ القرار: {_esc(e)}</div>"
@@ -563,32 +677,74 @@ def rebuild(job_id):
 
 
 # ---------------------------------------------------------------- الواجهة
+def review_choices(rows, current):
+    """اختيارات العرض فقط؛ يبقى الجدول وقرارات التدقيق دون تصفية أو تغيير."""
+    rows = rows.values.tolist() if hasattr(rows, "values") else (rows or [])
+    choices = [(f"{r[0]} · {r[1]} · {r[2] or r[3] or 'دون معرّف'}", r[0]) for r in rows]
+    keys = [r[0] for r in rows]
+    return gr.update(choices=choices, value=current if current in keys else None)
+
+
+def adjacent_review(rows, current, delta):
+    rows = rows.values.tolist() if hasattr(rows, "values") else (rows or [])
+    keys = [r[0] for r in rows]
+    if not keys:
+        return None
+    if current not in keys:
+        return keys[0]
+    return keys[max(0, min(len(keys) - 1, keys.index(current) + delta))]
+
+
+def save_visible_decision(job_id, key, displayed_key, action_ar, value, note, who):
+    """لا يُرسل القرار لمنطق التدقيق قبل اكتمال عرض دليل البند المحدد."""
+    if key != displayed_key or not displayed_key:
+        return "<div class='err'>انتظر ظهور دليل البند المحدد قبل حفظ القرار.</div>"
+    return save_decision(job_id, key, action_ar, value, note, who)
+
+
 def build():
-    with gr.Blocks(css=CSS, theme=THEME, title=L.PROJECT_AR, js=LENS_JS) as demo:
+    with gr.Blocks(css=CSS + MODEL_CSS + UI.CSS, theme=THEME, title=L.PROJECT_AR, js=LENS_JS) as demo:
         with gr.Column(visible=True) as landing:                                  # صفحة التعريف بالمشروع قبل الدخول
             gr.HTML(L.hero_html())
-            enter = gr.Button("الدخول إلى النظام · Enter the system  ←", variant="primary", size="lg", elem_classes="enter-btn")
+            with gr.Row(elem_classes="landing-actions"):
+                enter = gr.Button("الدخول إلى النظام · Enter the system  ←", variant="primary", size="lg", elem_classes="enter-btn")
+                gr.HTML(pres_link_html(), elem_classes="presentation-entry")
             gr.HTML(L.body_html())
-            gr.HTML(pres_link_html())
         with gr.Column(visible=False) as main:
-            gr.HTML("<h1 class='app-title'>"+L.PROJECT_AR+"</h1><p class='app-sub'>"+L.TAGLINE_AR+" · <bdi dir='ltr'>"+L.PROJECT_EN+"</bdi></p>")
-            gr.HTML(f"<div class='note'>{NOTE}</div>")
+            gr.HTML("<header class='workspace-header'><span class='workspace-mark' aria-hidden='true'>▤</span><div><p class='eyebrow'>مساحة التدقيق</p><h1 class='app-title'>فحص مستندات المنافسات الحكومية</h1><p class='app-sub'>برمجة محاسبية دقيقة ومتخصصة عبر الرؤية الحاسوبية و<bdi dir='ltr'>OCR</bdi> وقواعد التوجيه تدعم الحوكمة وكفاءة الإنفاق الحكومي</p></div></header>")
             with gr.Row(elem_classes="app-toolbar"):
                 about = gr.Button("عن المشروع · About", size="sm", scale=0)
+                model_sw = gr.HTML(model_switch_html())
+            model_btn = gr.Button("model", elem_id="model-toggle-btn", elem_classes="hidden-btn")
+            with gr.Row(visible=False) as model_pw_row:
+                model_pw = gr.Textbox(type="password", placeholder="باسورد تشغيل النموذج", show_label=False, container=False, scale=3)
+                model_go = gr.Button("تشغيل النموذج", variant="primary", scale=1)
+                model_cancel = gr.Button("إلغاء", scale=0)
+            model_pw_msg = gr.HTML(elem_classes="inline-feedback")
             job_card = gr.HTML(job_card_html(None))
-            job_dd = gr.Dropdown(label="المهمة", choices=_job_choices(), value=None, visible=False)   # حامل المهمة الجارية (مخفي): إدارة المهام في الخلفية، والمستخدم يرى فحصه الحالي فقط
+            job_dd = gr.Dropdown(label="المهمة", choices=_job_choices(), value=None, visible=False, allow_custom_value=True)   # حامل المهمة الجارية (مخفي): إدارة المهام في الخلفية، والمستخدم يرى فحصه الحالي فقط
             sigs = gr.State({})
-            with gr.Tabs(selected="upload") as tabs:
+            with gr.Tabs(selected="upload", elem_id="workspace-tabs") as tabs:
                 with gr.Tab("رفع", id="upload"):
-                    mode = gr.Radio(["فحص دفعة", "فحص منافسة"], value="فحص دفعة", label="نوع الفحص")
-                    with gr.Row():
-                        with gr.Column():
-                            contract = gr.File(label="ارفع عقد المنافسة (اختياري في فحص الدفعة؛ بدونه لا تُتحقق قواعد العقد)", file_types=[".pdf"], type="filepath")
-                        with gr.Column():
-                            batch_file = gr.File(label="ارفع ملف الدفعه (PDF أو ملف مضغوط ZIP يحوي ربطة واحدة)", file_types=[".pdf", ".zip"], file_count="single", type="filepath", visible=True)
-                            comp_files = gr.File(label="ارفع ملفات المنافسة (ملفات PDF أو ملف مضغوط ZIP)", file_types=[".pdf", ".zip"], file_count="multiple", type="filepath", visible=False)
-                    gr.HTML("<div class='hint'>يُقبل أي اسم للملف؛ وإن اتبع الصيغة رقم المنافسة-رقم الدفعة-رقم الربطة.pdf فستُملأ خانتا رقم الدفعة والربطة في التقرير.</div>")
-                    gr.HTML(_orient_hint())
+                    gr.HTML(UI.heading("فحص جديد", "ابدأ بمستنداتك", "اختر نطاق الفحص وارفع الربطات. أضف العقد لتدقيق القواعد المالية الخاصة بالمنافسة."))
+                    with gr.Group(elem_classes="workspace-panel"):
+                        gr.HTML(UI.step("١", "حدّد نطاق الفحص"))
+                        mode = gr.Radio(["فحص دفعة", "فحص منافسة"], value="فحص دفعة", label="نوع الفحص", elem_classes="mode-choice")
+                        gr.HTML("<div class='hint'>دفعة: ربطة واحدة. منافسة: جميع ربطات المنافسة، في ملف واحد أو عدة ملفات.</div>")
+                    with gr.Row(elem_classes="upload-grid"):
+                        with gr.Column(elem_classes="workspace-panel"):
+                            gr.HTML(UI.step("٢", "ارفع ربطات الفحص"))
+                            batch_file = gr.File(label="ملف الدفعة · PDF أو ZIP يحوي ربطة واحدة", file_types=[".pdf", ".zip"], file_count="single", type="filepath", visible=True, elem_classes="upload-zone")
+                            comp_files = gr.File(label="ملفات المنافسة · PDF أو ZIP", file_types=[".pdf", ".zip"], file_count="multiple", type="filepath", visible=False, elem_classes="upload-zone")
+                            gr.HTML("<div class='hint'>تحتوي الربطة على التعميد، ثم سند الاستلام والفاتورة المؤيدة له. يُقبل أي اسم للملف.</div>")
+                        with gr.Column(elem_classes="workspace-panel"):
+                            gr.HTML(UI.step("٣", "أضف عقد المنافسة"))
+                            contract = gr.File(label="ارفع عقد المنافسة (اختياري؛ بدونه يُعتمد السند الأول مرجعاً ويُحال ما يخالفه)", file_types=[".pdf"], type="filepath", elem_classes="upload-zone")
+                            gr.HTML("<div class='hint'>العقد يحسم قواعد العمولة والضريبة والغرامة. يمكن بدء الفحص بدونه، وتبقى القواعد غير المثبتة بحاجة إلى مراجعة.</div>")
+                    with gr.Group(elem_classes="workspace-panel preparation-guide"):
+                        gr.HTML("<h3>إرشادات تجهيز المستندات وتسميتها</h3>")
+                        gr.HTML("<div class='hint'>يُقبل أي اسم للملف؛ وإن اتبع الصيغة رقم المنافسة-رقم الدفعة-رقم الربطة.pdf فستُملأ خانتا رقم الدفعة والربطة في التقرير.</div>")
+                        gr.HTML(_orient_hint())
                     with gr.Accordion("خيارات اختيارية (يمكن تجاهلها)", open=False):
                         gr.HTML("<div class='hint'><b>اسم المراجع:</b> يُكتب في سجل المهمة لمعرفة من شغّل الفحص.<br><b>ربطات مجاورة:</b> في فحص الدفعة فقط، إن كانت فاتورة الدفعة مشتركة مع سندات في ربطات أخرى من المنافسة نفسها، ارفع تلك الربطات هنا فتُستعمل لمطابقة الفاتورة فقط ولا تدخل سنداتها في التقرير.</div>")
                         who = gr.Textbox(label="اسم المراجع", placeholder="اختياري")
@@ -598,40 +754,55 @@ def build():
                             gr.HTML("<div class='hint'>لقياس دقة النظام على ملفات اختبار مصنّعة: علّم الملف بأنه مصنّع، وارفع نسخته النصية الأصلية لمقارنة القراءة بها. لا تُستعمل مع الملفات الفعلية.</div>")
                             synth = gr.Checkbox(label="ملف اختبار مصنّع (ليس ربطة حقيقية)", value=False)
                             truth = gr.File(label="نسخة نصية مرجعية للقياس فقط (اختياري، لملفات الاختبار المصنّعة)", file_types=[".pdf"], type="filepath")
-                    go = gr.Button("ابدأ الفحص", variant="primary", size="lg")
-                    msg = gr.HTML()
+                    with gr.Row(elem_classes="upload-footer"):
+                        gr.HTML("<div class='hint'><b>جاهز للبدء؟</b><br>تأكد من وضوح الصفحات وترتيب المستندات. ستنتقل تلقائياً إلى متابعة الفحص.</div>")
+                        go = gr.Button("ابدأ الفحص", variant="primary", size="lg", scale=0, min_width=240, elem_classes="primary-action")
+                    msg = gr.HTML(elem_classes="inline-feedback")
                 with gr.Tab("المتابعة", id="follow"):
+                    gr.HTML(UI.heading("حالة المهمة", "تابع فحص المستندات", "تتحدث المراحل تلقائياً. ستجد البنود التي تحتاج قراراً في تبويب المراجعة."))
                     status = gr.HTML(status_html(None))
                     cancel_btn = gr.Button("إلغاء الفحص وإيقافه فوراً", variant="stop", size="sm")
-                    cancel_msg = gr.HTML()
+                    cancel_msg = gr.HTML(elem_classes="inline-feedback")
                     with gr.Accordion("سجل المهمة", open=False):
                         log = gr.Textbox(show_label=False, lines=8, interactive=False)
                 with gr.Tab("المراجعة", id="review"):
-                    summ = gr.HTML()
-                    table = gr.Dataframe(headers=["المفتاح", "السبب", "السند", "الفاتورة", "الملف", "الصفحة", "القرار"], interactive=False, wrap=True)
-                    key_dd = gr.Textbox(label="مفتاح البند (يُملأ باختيار صف من الجدول)")
-                    show_btn = gr.Button("اعرض الدليل")
-                    info = gr.HTML()
-                    img = gr.HTML()
-                    with gr.Group():
-                        action = gr.Radio([DECISION_OK, DECISION_BAD], value=None, label="القرار")
-                        value = gr.Textbox(visible=False)          # لم يعد يُستعمل: قراران فقط
-                        note = gr.Textbox(label="ملاحظة المراجع (إلزامية)")
-                        reviewer = gr.Textbox(label="اسم المراجع (إلزامي)")
-                    save = gr.Button("احفظ القرار", variant="primary")
-                    saved = gr.HTML()
-                    rebuild_btn = gr.Button("إعادة بناء التقرير بعد المراجعة", variant="primary")
-                    rebuilt = gr.HTML()
+                    displayed_key = gr.State(None)
+                    gr.HTML(UI.heading("مراجعة بالدليل", "كل قرار يعود إلى مصدره", "اختر بنداً، واقرأ صفحات المعاملة، ثم وثّق قرارك وسببه. الأرقام المطبوعة تبقى كما ظهرت في المصدر."))
+                    summ = gr.HTML(_review_summary([]))
+                    with gr.Accordion("قائمة بنود المراجعة · اختر صفاً لفتح الدليل", open=True):
+                        table = gr.Dataframe(headers=["المفتاح", "السبب", "السند", "الفاتورة", "الملف", "الصفحة", "القرار"], interactive=False, wrap=True, elem_id="review-table", max_height=300)
+                    with gr.Row(elem_classes="review-navigation"):
+                        key_dd = gr.Dropdown(label="البند المحدد", choices=[], value=None, filterable=True, scale=5, allow_custom_value=True)   # يُتحقق من البند في ملف المهمة عند الحفظ
+                        previous_btn = gr.Button("→ السابق", scale=0, min_width=105)
+                        next_btn = gr.Button("التالي ←", scale=0, min_width=105)
+                        show_btn = gr.Button("تحديث الدليل", scale=0, min_width=130)
+                    with gr.Row(elem_classes="review-layout"):
+                        with gr.Column(scale=3, min_width=320, elem_classes="evidence-column"):
+                            info = gr.HTML()
+                            img = gr.HTML(show_item(None, None)[0])
+                        with gr.Column(scale=1, min_width=300, elem_classes=["workspace-panel", "decision-panel"]):
+                            gr.HTML(UI.step("✓", "قرار المراجع"))
+                            gr.HTML("<div class='hint'>طابق الدليل قبل الاختيار. الانتقال لبند آخر يمسح مسودة القرار غير المحفوظة.</div>")
+                            action = gr.Radio([DECISION_OK, DECISION_BAD], value=None, label="القرار")
+                            value = gr.Textbox(visible=False)          # لم يعد يُستعمل: قراران فقط
+                            note = gr.Textbox(label="ملاحظة المراجع (إلزامية)", placeholder="دوّن سبب القرار وموضع الدليل في المصدر…", lines=4)
+                            reviewer = gr.Textbox(label="اسم المراجع (إلزامي)", placeholder="اسمك في سجل المراجعة")
+                            save = gr.Button("احفظ القرار", variant="primary", elem_classes="primary-action")
+                            saved = gr.HTML(elem_classes="inline-feedback")
+                    gr.HTML("<div class='hint'>بعد حفظ قراراتك، أعد بناء التقرير لتطبيقها. يبقى اعتماد التقرير خاضعاً لاكتمال المراجعة.</div>")
+                    rebuild_btn = gr.Button("إعادة بناء التقرير بعد المراجعة", variant="secondary")
+                    rebuilt = gr.HTML(elem_classes="inline-feedback")
                 with gr.Tab("التقرير", id="report"):
-                    gr.HTML("<div class='card'><h3>تقرير <bdi dir='ltr'>Excel</bdi></h3><span class='hint'>المسودة تُنزَّل في أي وقت وتحمل «يتطلب مراجعة» في خلية الإقفال ما دامت بنود مفتوحة؛ التصدير النهائي لا يتم إلا بعد حسم كل البنود.</span></div>")
+                    gr.HTML(UI.heading("المخرجات", "التقرير والأثر المحاسبي", "تقرير بالقالب المعتمد مع نتائج الفحص ومواضع المستندات."))
+                    gr.HTML("<div class='card report-note'><span class='empty-symbol' aria-hidden='true'>▦</span><div><h3>تقرير <bdi dir='ltr'>Excel</bdi></h3><span class='hint'>المسودة تُنزَّل في أي وقت وتحمل «يتطلب مراجعة» في خلية الإقفال ما دامت بنود مفتوحة؛ التصدير النهائي لا يتم إلا بعد حسم كل البنود.</span></div></div>")
                     file_out = gr.File(label="ملف التقرير (Excel)")
-                with gr.Tab("🧭 أداة تصحيح الاتجاه", id="orient"):
-                    gr.HTML("<div class='card' style='border:2px solid #D98324;background:rgba(217,131,36,.08)'><h3 style='margin:0 0 .3rem'>🧭 أداة تصحيح الاتجاه — خارج عملية التدقيق</h3><span class='hint'>أداة مستقلة تُستعمل <b>قبل</b> الرفع للفحص: ارفع ملف PDF ممسوحاً فيُكشف اتجاه كل صفحة ويُصحَّح دون إعادة رسم الصورة (بلا فقد جودة)، ثم نزّل النسخة المصححة وارفعها في تبويب «رفع». لا تُنشئ مهمة فحص ولا تقريراً.</span></div>")
+                with gr.Tab("أداة تصحيح الاتجاه", id="orient"):
+                    gr.HTML("<div class='card' style='border-inline-start:3px solid var(--warn)'><h3 style='margin:0 0 .3rem'>أداة تصحيح الاتجاه — خارج عملية التدقيق</h3><span class='hint'>أداة مستقلة تُستعمل <b>قبل</b> الرفع للفحص: ارفع ملف PDF ممسوحاً فيُكشف اتجاه كل صفحة ويُصحَّح دون إعادة رسم الصورة (بلا فقد جودة)، ثم نزّل النسخة المصححة وارفعها في تبويب «رفع». لا تُنشئ مهمة فحص ولا تقريراً.</span></div>")
                     o_in = gr.File(label="ملف PDF", file_types=[".pdf"], type="filepath")
                     o_btn = gr.Button("صحّح الاتجاه", variant="primary")
                     o_out = gr.File(label="النسخة المصححة")
-                    o_msg = gr.HTML()
-                with gr.Tab("🎬 العرض التقديمي", id="present"):
+                    o_msg = gr.HTML(elem_classes="inline-feedback")
+                with gr.Tab("العرض التقديمي", id="present"):
                     gr.HTML(pres_tab_html(), elem_id="presentation-panel")
 
         enter.click(lambda: (gr.update(visible=False), gr.update(visible=True)), None, [landing, main])
@@ -672,11 +843,21 @@ def build():
                 return df.iloc[evt.index[0], 0]
             except Exception:  # noqa: BLE001
                 return ""
-        table.select(pick, table, key_dd).then(show_item, [job_dd, key_dd], [img, info])
-        save.click(save_decision, [job_dd, key_dd, action, value, note, reviewer], saved)
+        table.change(review_choices, [table, key_dd], key_dd, show_progress="hidden")
+        table.select(pick, table, key_dd)
+        previous_btn.click(lambda r, k: adjacent_review(r, k, -1), [table, key_dd], key_dd)
+        next_btn.click(lambda r, k: adjacent_review(r, k, 1), [table, key_dd], key_dd)
+        key_dd.change(lambda j, k: (*show_item(j, k), None, "", "", k), [job_dd, key_dd], [img, info, action, note, saved, displayed_key], show_progress="hidden")
+        save.click(save_visible_decision, [job_dd, key_dd, displayed_key, action, value, note, reviewer], saved)
         rebuild_btn.click(rebuild, job_dd, rebuilt)
         job_dd.change(lambda j, s: tick(j, s, True), [job_dd, sigs], outs, show_progress="hidden")
+        job_dd.change(lambda: None, None, key_dd, show_progress="hidden")
         gr.Timer(2).tick(tick, [job_dd, sigs], outs, show_progress="hidden")
+        model_btn.click(model_toggle, None, [model_sw, model_pw_row, model_pw_msg], show_progress="hidden")
+        model_go.click(model_unlock, model_pw, [model_sw, model_pw_row, model_pw_msg, model_pw], show_progress="hidden")
+        model_pw.submit(model_unlock, model_pw, [model_sw, model_pw_row, model_pw_msg, model_pw], show_progress="hidden")
+        model_cancel.click(lambda: (gr.update(visible=False), "", ""), None, [model_pw_row, model_pw_msg, model_pw], show_progress="hidden")
+        gr.Timer(5).tick(model_view, None, model_sw, show_progress="hidden")
     return demo
 
 

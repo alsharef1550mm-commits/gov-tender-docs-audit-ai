@@ -213,9 +213,8 @@ def check_files(job: Job) -> dict:
     problems, scanned, info = [], [], []
     comps = set()
     unnamed = []                                            # ربطات أسماؤها لا تتبع الصيغة المعتادة: لا خطأ، تُستخدم أسماؤها كما هي
-    contract = next((f for f in m["files"] if f["kind"] == "contract"), None)     # اختياري في فحص الدفعة فقط
-    if contract is None and m["mode"] == "competition":
-        problems.append({"level": "error", "msg": "فحص المنافسة يتطلب عقد المنافسة"})
+    contract = next((f for f in m["files"] if f["kind"] == "contract"), None)     # اختياري في الدفعة والمنافسة
+    # العقد اختياري في الدفعة والمنافسة: بدونه يُستنتج النمط من السندات ويُحال كل ما يخالفه (انظر engine.consistency_issues)
     bundles = [f for f in m["files"] if f["kind"] == "bundle"]
     if m["mode"] == "batch" and len(bundles) != 1:
         problems.append({"level": "error", "msg": f"فحص الدفعة يتطلب ربطة واحدة، وصل {len(bundles)}"})
@@ -284,6 +283,22 @@ def _decided(m, key):
 
 _RUN_LOCKS: dict = {}
 _RUN_LOCKS_GUARD = threading.Lock()
+
+
+def reap(job: Job) -> dict:
+    """A scan whose process is gone (the app was restarted or the computer slept) is marked failed with the reason,
+    instead of showing «جارٍ الاستخراج» forever."""
+    m = job.load()
+    if m.get("state") in ("extracting", "matching") and m.get("pid"):
+        try:
+            import psutil
+            alive = psutil.pid_exists(int(m["pid"])) and psutil.Process(int(m["pid"])).status() != psutil.STATUS_ZOMBIE
+        except Exception:  # noqa: BLE001
+            alive = True                                  # unknown: never fail a scan on a guess
+        if not alive:
+            job.set_state("failed", error="توقفت عملية الفحص قبل اكتمالها (أُعيد تشغيل التطبيق أو توقف الجهاز). أعد بدء الفحص.")
+            return job.load()
+    return m
 
 
 def run_job(job: Job, workers: int | None = None, code_map=None) -> dict:
@@ -355,6 +370,8 @@ def _run_job_locked(job: Job, workers: int | None = None, code_map=None) -> dict
             finally:
                 PH.set_reporter(None)
             job.set_state("matching")
+            if data.get("no_contract_note"):
+                job.update(note_ar=data["no_contract_note"])
             path, unresolved = CW.write_competition_report(bundles, contract, out_path, code_map=code_map, data=data, resolved_keys=decided_keys,
                                                          exclude_stos=exclude)
         def related_for(u):
@@ -407,6 +424,13 @@ def review(job: Job, key: str, action: str, value: str | None = None, note: str 
         D(value)                                    # يرفع استثناءً إن لم يكن رقماً
     m = job.load()
     m["decisions"][key] = {"action": action, "value": value, "note": note, "reviewer": reviewer, "time": _now()}
+    # A decision on an audit finding is not a verified page-level training label.
+    # Keep a separate review candidate, never append it to a training dataset.
+    item = next((x for x in m.get('pending',[]) if x.get('key')==key), {})
+    m.setdefault('label_review_candidates', {})[key] = {
+        'decision': dict(m['decisions'][key]), 'source_finding': dict(item),
+        'training_eligible': False, 'status': 'pending_field_label_review',
+        'requires': ['source_image', 'field_locations', 'verified_target', 'split_check', 'explicit_label_approval']}
     job.save(m)
     job.log(f"قرار مراجعة {key}: {action}")
     return m

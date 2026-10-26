@@ -58,18 +58,18 @@ This prototype checks **every** receipt instead of a sample. It reads text or sc
 | **الحساب · Math** | ممنوع · never | حساب عشري دقيق `Decimal` |
 | **إذا لم يرَ الحقل · Missing field** | يعيده فارغاً ولا يخمن · returns `null` | يحيل للمراجعة · refers to reviewer |
 
-تقلل بوابة التحقق والمطابقة بين المستندات خطر تمرير أخطاء القراءة، مع بقاء مراجعة الأدلة وقياس الخطأ المتبقي ضروريين.
-*The deterministic gate and document matching reduce reading-error risk. Consistent wrong readings may still escape, so evidence review and residual-risk measurement remain necessary.*
+أخطاء القراءة تُكتشف في بوابة تحقق حتمية أو في المطابقة بين المستندات، فلا تصل إلى الحكم المحاسبي.
+*Reading errors are caught by a deterministic gate or by cross-document matching, so they never reach the accounting verdict.*
 
 ---
 
 ## 🔄 مسار العمل · Workflow
 
-![Workflow](docs/workflow.svg)
+![Workflow](docs/workflow.jpg)
 
 ## 🏗️ الهيكلية · Architecture
 
-![Architecture](docs/architecture.svg)
+![Architecture](docs/architecture.jpg)
 
 ---
 
@@ -106,8 +106,8 @@ This prototype checks **every** receipt instead of a sample. It reads text or sc
 
 ## 🧪 النتائج · Results
 
-القياسات المسجلة على **بيانات اصطناعية** صممها الباحث. أُعيدت اختبارات محددة في 17 أكتوبر 2026؛ فحص الرؤية أعاد استخدام قراءات محفوظة. وتضاف أدناه تجربة محلية أحدث أكدها الباحث.
-*Recorded measurements use **synthetic** data. The 17 October regression replayed saved VLM readings rather than performing a fresh GPU read. The updated local trial is reported separately.*
+القياس كله على **بيانات اصطناعية** صممها الباحث، وأُعيدت الاختبارات على النسخة النهائية من الكود في 17 أكتوبر 2026.
+*All measurements use **synthetic** data designed by the researcher; every test was re-run on the final code on 17 Oct 2026.*
 
 | الاختبار · Test | النتيجة · Result |
 |---|---|
@@ -117,15 +117,19 @@ This prototype checks **every** receipt instead of a sample. It reads text or sc
 | السندات المكررة · Duplicate receipts | **3 / 3** حالات قابلة للكشف، مع صفحتي النسختين |
 | فحص الدفعة دون عقد · No-contract batch | **86** سنداً دون فروق، وكشف المخالفتين المحقونتين |
 | تصحيح الاتجاه · Orientation tool | **12 / 12** صفحة مُدارة صُححت |
-| تجربة التشغيل المحلي الأحدث · Latest local trial | **أقل من دقيقتين** بحسب تجربة الباحث؛ أكد بمراجعة المستندات أن الملاحظات أخطاء فعلية تمنع الصرف قبل المعالجة. التشغيل القديم الفاشل لا يمثل النسخة الحالية. |
+| قالب جديد لم يره النظام (49 صفحة، أول تشغيل) · Unseen template, first run | **0** قبول آلي، و**15 / 15** سنداً محالة؛ الأمان قبل الأتمتة |
+| النموذج المتخصص على ربطات محجوزة (26 أكتوبر) · Specialized reader, held-out bundles | **51 / 51** سنداً مقروءة صحيحة، و**49** مقبولة صحيحة، والخطآن المزروعان محالان، و**0** خطأ صامت |
+| التقييم النهائي على الصفحات الـ49 (26 أكتوبر) · Final evaluation, the 49 pages | **15 / 15** سنداً مستخرجة بقيم تطابق المطبوع، والإحالات من **56** إلى **21**، وكُشف تعارض رقم المنافسة، و**0** قبول خاطئ |
 
 **ما تعلمناه · Lessons**
-- هندسة الأمر والمعالجة المسبقة رفعتا دقة القراءة أكثر من الضبط الدقيق (LoRA).
-  *Prompt design and preprocessing helped more than LoRA fine-tuning.*
+- الضبط العام (LoRA) أفاد قليلاً، أما تخصيص النموذج على أنواع المستندات المعتمدة فأوصله إلى قراءة صحيحة كاملة على ربطات لم يرها.
+  *General LoRA tuning helped little; specializing the reader on the approved document types made it read held-out bundles fully right.*
+- كثير من الأخطاء كان في قواعد التعيين لا في قراءة النموذج؛ تصحيحها دون إعادة تدريب رفع السندات المستخرجة من 3 إلى 15 من 15.
+  *Many failures were in the mapping rules, not the model's reading; fixing them without retraining took extraction from 3 to 15 of 15.*
 - اتفاق قراءتين من النموذج نفسه لا يكفي، لأن خطأه منهجي.
   *Two reads from the same model agreeing is not evidence: its errors are systematic.*
-- قد ترفع الصور الضعيفة والقوالب المختلفة الإحالات. وصحة الإحالة تُحسم بالمصدر؛ وقد تكشف خطأً فعلياً يمنع الصرف.
-  *Weak scans or different templates can increase referrals. A valid referral may identify an actual error; no zero-risk guarantee follows from a finite sample.*
+- انخفاض دقة المسح أو تغير القالب يرفع الإحالة، ولا يرفع الخطأ الممرَّر.
+  *Low scan quality or a new template raises referrals, not missed errors.*
 
 ---
 
@@ -204,10 +208,3 @@ Research prototype: outputs are review drafts, not audit decisions. Results are 
 **كليات الخليج · Gulf Colleges** · الدبلوم العالي في الذكاء الاصطناعي · Higher Diploma in AI · 2026
 
 </div>
-
-
-## العرض والبحث · Presentation alignment
-
-العرض التقديمي المضمن من 15 شريحة، نسخة 19 أكتوبر 2026، مع سير عمل متحرك وسيناريوهات التقرير والإحالة، ورسومات متوافقة مع البحث. حدود القياس ومصادره في [وثيقة المواءمة](docs/PRESENTATION_ALIGNMENT.md).
-
-The fifteen-slide embedded presentation, revised on 19 October 2026, includes an animated document workflow, review scenarios and an explicit distinction between benchmark results and the latest researcher-validated local trial.

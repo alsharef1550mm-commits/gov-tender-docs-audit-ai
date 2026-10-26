@@ -1,0 +1,19 @@
+{
+ "note": "النموذج المعتمد الذي يشغّله زر التشغيل في الواجهة. يُحدَّث فقط بعد اجتياز بوابات القبول.",
+ "adapter_dir": "out/design_robustness_20261020/label_pairs_v1/train_run_v9/trained/checkpoint_e1",
+ "adapter_sha256": "979ea4371cca155f4722b29ebf6a04760d10701799f3ce01f4f9a7c3bb90e018",
+ "approved": "round-9 e1 (final, owner 2026-10-26): trained on all official-template competitions (held-out test documents excluded), continued from round-4 e1. Held-out clear scans 327-01-002/006 and 730-01-001/008: 51/51 read correctly, 49 sound accepted, the 2 planted errors referred, 0 silent (with the group-heading invoice link fix).",
+ "support_files": [
+  "out/design_robustness_20261020/binding_repair_v24/merge_candidate_copy.py",
+  "out/design_robustness_20261020/binding_repair_v24/fla_core-0.5.2-py3-none-any.whl",
+  "out/design_robustness_20261020/binding_repair_v24/flash_linear_attention-0.5.2-py3-none-any.whl"
+ ],
+ "max_minutes": 180,
+ "cap_usd": 2.0,
+ "fallback": {
+  "adapter_dir": "out/design_robustness_20261020/label_pairs_v1/train_run_v4/trained/checkpoint_e1",
+  "adapter_sha256": "224121d37caaecb31228b941aaac045dd182a74bc925b4aae2fe31bfc1b69fa7",
+  "approved": "round-7 system: round-4 e1 adapter + label second look and safety fixes in pairs_reader/pairs_mapper/vlm_reader/engine (owner approval 2026-10-25). Validation eligible (1 old error, 0 new, contract 48/48); internal 48/48 extraction, 0 silent; clean blind3_339: 44/44 read correctly, 37 accepted all correct, 0 silent, 5/5 planted.",
+  "note": "round-4 e1 (round-7 system): previous approved model; to fall back, put these three values back in adapter_dir / adapter_sha256 / approved."
+ }
+}

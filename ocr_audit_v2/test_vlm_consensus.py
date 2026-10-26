@@ -40,7 +40,7 @@ def main():
     mc = V.merge_preds(a, c)
     V._tess_digits10 = lambda img: {"0000006831"}
     r = V._arbitrate_ids(copy.deepcopy(mc), a, c, None)
-    assert r["ids"]["receipt_no"] == "STO0000006831" and not r["_id_conflicts"] and r["_arbitrated"] == ["receipt_no"]
+    assert r["ids"]["receipt_no"] is None and r["_id_conflicts"] == ["receipt_no"]  # Unlabelled digit occurrence cannot resolve identity
     V._tess_digits10 = lambda img: set()                                       # لا أحد يظهر: يبقى التعارض
     assert V._arbitrate_ids(copy.deepcopy(mc), a, c, None)["_id_conflicts"] == ["receipt_no"]
     V._tess_digits10 = lambda img: {"0000006831", "0000006855"}                # كلاهما يظهر: يبقى التعارض

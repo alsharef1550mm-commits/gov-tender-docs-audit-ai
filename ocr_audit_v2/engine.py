@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
@@ -68,7 +69,130 @@ def read_rules(contract_pdf: str | None, competition: str) -> Rules:
                 if m and rules.contract_total is None:
                     rules.contract_total = num(m.group(1))
                     rules.evidence["contract_total"] = (p.n, l.text)
+    if rules.tax_mode == "unknown":
+        _clause_rules(contract_pdf, rules)
     return rules
+
+
+PCT = re.compile(r"(\d+(?:\.\d+)?)\s*%|%\s*(\d+(?:\.\d+)?)")
+
+
+def _pcts(s):
+    return [D(a or b) for a, b in PCT.findall(s)]
+
+
+def _page_lines(textpage):
+    """The page's text lines in reading order.
+
+    pdfium returns logical text, but a right-to-left line may come out as several runs in the wrong
+    order (the left part of a wrapped clause before its start). Runs on the same visual line are
+    ordered right to left, and lines top to bottom.
+    """
+    n = textpage.count_chars()
+    text = textpage.get_text_range(0, n)
+    runs, cur, ys, xs = [], [], [], []
+    for i, ch in enumerate(text):
+        if ch in "\r\n":
+            if cur and ys:
+                runs.append((sum(ys) / len(ys), max(xs), "".join(cur).strip()))
+            cur, ys, xs = [], [], []
+            continue
+        cur.append(ch)
+        if ch.strip():
+            left, bottom, right, top = textpage.get_charbox(i)
+            ys.append((bottom + top) / 2)
+            xs.append(right)
+    if cur and ys:
+        runs.append((sum(ys) / len(ys), max(xs), "".join(cur).strip()))
+    lines = []
+    for y, x, s in sorted(runs, key=lambda r: -r[0]):
+        if lines and abs(lines[-1][0] - y) < 2:
+            lines[-1][1].append((x, s))
+        else:
+            lines.append((y, [(x, s)]))
+    return [" ".join(s for _, s in sorted(parts, key=lambda p: -p[0])) for _, parts in lines]
+
+
+# Word-generated Arabic PDFs extract the lam-alef ligature reversed: «الأصناف» as «األصناف», «ريال» as «لاير».
+LIGATURE = [(re.compile(r"(^|\s)([وبفكل]?)اال"), r"\1\2الا"), (re.compile(r"(^|\s)لاير(?=\s|$|[،,.])"), r"\1ريال")]
+HEADING = re.compile(r"^\S+(\s+\S+)?\s*:")
+# Justified Arabic text can extract with a space inside a word («ضر يبة»); the clause keywords are rejoined.
+KEYWORDS = ["الضريبه", "ضريبه", "مضافه", "نوبكو", "عموله", "غرامه", "تاخير", "الاجمالي", "الصافي", "صافي", "اسبوع"]
+SPLIT = [(re.compile(r"(?<!\S)" + r" ?".join(map(re.escape, w)) + r"(?!\S)"), w) for w in KEYWORDS]
+
+
+def _sentences(contract_pdf):
+    """Contract prose in reading order, one sentence per item, with its page; tables are skipped.
+
+    A clause wrapped over several lines is one sentence: lines are joined and split at full stops,
+    semicolons and a new "heading:" line.
+    """
+    import pypdfium2
+    doc = pypdfium2.PdfDocument(contract_pdf)
+    out = []
+    try:
+        for i in range(len(doc)):
+            text = ""
+            for line in _page_lines(doc[i].get_textpage()):
+                text += ("\n" if HEADING.match(line) else " ") + line
+            for s in re.split(r"(?<!\d)\.(?!\d)|[؛\n]+", text):
+                s = norm_ar(s).strip()
+                for pattern, repl in LIGATURE + SPLIT:
+                    s = pattern.sub(repl, s)
+                words = s.split()
+                if 3 <= len(words) <= 60 and len(re.findall(r"\d[\d,.]*", s)) <= 6:
+                    out.append((i + 1, s))
+    finally:
+        doc.close()
+    return out
+
+
+def _clause_rules(contract_pdf, rules: Rules) -> None:
+    """Fallback for contracts written as prose clauses instead of the template's equation lines.
+
+    Reads only explicit sentences; each conclusion keeps its sentence as evidence:
+      tax base   - a VAT sentence: no VAT / taxable items only / net / net plus NUPCO;
+      commission - a percentage within four words of "نوبكو" in a sentence not about VAT;
+      late       - "غرامة تأخير N% ... أسبوع", cap "حد أعلى/سقف ... N%";
+      total      - "الإجمالي N ريال".
+    Conflicting tax sentences leave the rule unknown, so receipts are referred.
+    """
+    modes = set()
+    for n, s in _sentences(contract_pdf):
+        words = s.split()
+        tax_at = [k for k, w in enumerate(words) if w in ("ضريبه", "الضريبه")]
+        # A VAT-rate sentence: the percentage follows the word "ضريبة" within four words.
+        # It must also state its base ("على صافي ..."), which a table header never does.
+        rate_sentence = any(_pcts(" ".join(words[k + 1:k + 5])) for k in tax_at) and "علي" in words \
+            and any(w in ("صافي", "الصافي") for w in words)
+        if tax_at and (rate_sentence or "مضافه" in s):
+            if re.search(r"\b(لا|دون)\b.{0,12}ضريبه", s) and not _pcts(s):
+                modes.add(("none", n, s))
+            elif rate_sentence:
+                partial = "الخاضعه" in s
+                negated = re.search(r"(دون|بدون|عدا)\s+(رسوم\s+|عموله\s+)?(نوبكو|العموله|الرسوم)", s)
+                comm = ("نوبكو" in s or "عموله" in s) and not negated
+                modes.add((("partial_" if partial else "full_") + ("net_comm" if comm else "net"), n, s))
+        elif "نوبكو" in words and "غرامه" not in s:
+            k = words.index("نوبكو")
+            near = " ".join(words[max(0, k - 4):k + 5])
+            if _pcts(near) and D("0") < _pcts(near)[0] / 100 < D("0.2"):
+                rules.commission = _pcts(near)[0] / 100
+                rules.evidence.setdefault("commission", (n, s))
+        if "غرامه" in s and "تاخير" in s and _pcts(s):
+            if "اسبوع" in s:
+                rules.late_weekly = _pcts(s)[0] / 100
+            if "حد اعلي" in s or "سقف" in s:
+                rules.late_cap = _pcts(s)[-1] / 100
+            rules.evidence.setdefault("late", (n, s))
+        m = re.search(r"الاجمالي\s+([\d,]+\.\d{2})\s*ريال", s)
+        if m and rules.contract_total is None:
+            rules.contract_total = num(m.group(1))
+            rules.evidence["contract_total"] = (n, s)
+    if len({m for m, _, _ in modes}) == 1:
+        mode, n, s = modes.pop()
+        rules.tax_mode = mode
+        rules.evidence["tax"] = (n, s)
 
 
 # بعد حساب غرامة كل سند، نطبق الحد الأقصى التراكمي للغرامة (6% من إجمالي
@@ -128,6 +252,7 @@ class Result:
     late_days: int
     issues: list[Issue]
     items: list[dict]
+    po_absent: bool = False                  # تعميد السند غير موجود في الربطة: لا مطابقة بالتعميد، ويُحال السند ببند واحد لا بأخطاء أصناف
 
     @property
     def ok(self) -> bool:
@@ -176,10 +301,12 @@ def check_receipt(r: Receipt, rules: Rules, pos: dict[str, PO], invoices: dict[s
     for it in r.items:
         pi = po_items.get(it.code)
         price = it.unit_price
-        if pi is None:
+        if po is None:
+            pass                                    # التعميد نفسه غائب عن الربطة: لا يُنسب للصنف خطأ «غير موجود في التعميد»
+        elif pi is None:
             issues.append(Issue("item_not_in_po", f"الصنف {it.code} غير موجود في التعميد {r.pon}", it.code, None, it.ev.page))
         else:
-            if pi.unit_price != it.unit_price:
+            if pi.unit_price != it.unit_price and not _rounded_print(it.unit_price, pi.unit_price):
                 issues.append(Issue("price_vs_po", f"سعر {it.code} في السند يخالف التعميد", it.unit_price, pi.unit_price, it.ev.page))
             price = pi.unit_price
         # صافي الصنف = الكمية × سعر التعميد، وعمولة نوبكو 4% من الصافي، والتقريب
@@ -248,12 +375,23 @@ def check_receipt(r: Receipt, rules: Rules, pos: dict[str, PO], invoices: dict[s
         if key in p and abs(p[key] - computed) > TOL:
             issues.append(Issue(code, f"{label} مطبوع {p[key]} والمحسوب {computed}", p[key], computed,
                                 r.summary_ev.page if r.summary_ev else None))
-        elif key not in p:
+        elif key not in p and not unread:
             issues.append(Issue(code + "_missing", f"{label} غير مقروء في السند", None, computed))
 
+    # An item row the reading left incomplete (no code, quantity, price or line total) is not in the sums: comparing them
+    # with the printed totals would only report a difference made by the missing row. One clear referral instead.
+    unread = r.__dict__.get("incomplete_rows") or []
+    if unread:
+        issues.append(Issue("items_unread", "بند في السند لم يُقرأ كاملاً (" + "؛ ".join(unread) +
+                            "): لا تُقارن مجاميع السند قبل مراجعة الصفحة", None, None, r.pages[0] if r.pages else None))
+        p = {k: v for k, v in p.items() if k not in ("net", "nupco", "vat", "total", "final")}
     # مقارنة الصافي والعمولة والضريبة والإجمالي المطبوعة في السند بالمحسوبة.
     cmp("net", net_sum, "net", "صافي السند")
-    cmp("nupco", comm_sum, "commission", "عمولة نوبكو")
+    # Some receipts (the NUPCO «مذكرة استلام») print no commission line: it is the printed total less the printed net
+    # and VAT. When those three printed values all agree with the computed ones, the commission is proven by them.
+    implied = "nupco" not in p and all(k in p and abs(p[k] - c) <= TOL for k, c in (("net", net_sum), ("vat", vat_sum), ("total", total)))
+    if not implied:
+        cmp("nupco", comm_sum, "commission", "عمولة نوبكو")
     cmp("vat", vat_sum, "vat", "ضريبة السند")
     cmp("total", total, "total", "إجمالي السند")
     # مقارنة الغرامة وأيام التأخير المطبوعة بما حسبناه من التواريخ.
@@ -281,12 +419,15 @@ def check_receipt(r: Receipt, rules: Rules, pos: dict[str, PO], invoices: dict[s
             issues.append(Issue("invoice_no", f"رقم الفاتورة في السند {r.invoice_no} والفاتورة التي تحويه {inv.number}",
                                 r.invoice_no, inv.number))
         alloc = inv.allocations.get(r.sto)
-        if alloc is not None and abs(alloc - payable) > TOL and abs(alloc - total) > TOL:
+        collective = getattr(inv, "collective", False) and not inv.items
+        if collective and alloc is not None and abs(alloc - net_sum) > TOL:
+            issues.append(Issue("invoice_amount", f"صافي السند في الفاتورة الجماعية {alloc} والمحسوب من أصناف السند {net_sum}", alloc, net_sum))
+        elif not collective and alloc is not None and abs(alloc - payable) > TOL and abs(alloc - total) > TOL:
             issues.append(Issue("invoice_amount", f"مبلغ السند في الفاتورة {alloc} والمحسوب {payable}", alloc, payable))
         # مقارنة كل صنف في السند ببنده في الفاتورة: الكمية والصافي أولاً، ثم
         # العمولة والضريبة.
         ii = [i for i in inv.items if i.sto == r.sto]
-        for row in items_out:
+        for row in ([] if collective else items_out):
             m = [i for i in ii if i.code == row["code"]]
             if not m:
                 issues.append(Issue("item_not_in_invoice", f"الصنف {row['code']} غير موجود في بنود الفاتورة"))
@@ -298,7 +439,8 @@ def check_receipt(r: Receipt, rules: Rules, pos: dict[str, PO], invoices: dict[s
             elif abs(i0.vat - row["vat"]) > TOL or abs(i0.nupco - row["comm"]) > TOL:
                 issues.append(Issue("invoice_item_tax", f"عمولة/ضريبة {row['code']} في الفاتورة تخالف المحسوب", i0.vat, row["vat"], i0.ev.page))
     # نعيد نتيجة السند كاملة: الأرقام المحسوبة، والملاحظات، وبنود الأصناف.
-    return Result(r.sto, r.pon, r.invoice_no, r.date, r.pages, net_sum, comm_sum, vat_sum, total, penalty, payable, late_days, issues, items_out)
+    return Result(r.sto, r.pon, r.invoice_no, r.date, r.pages, net_sum, comm_sum, vat_sum, total, penalty, payable, late_days, issues, items_out,
+                  po_absent=po is None)
 
 
 def infer_bundle_rules(b: Bundle, rules: Rules) -> Rules:
@@ -307,8 +449,8 @@ def infer_bundle_rules(b: Bundle, rules: Rules) -> Rules:
       - أساس الضريبة (الصافي أو الصافي مع العمولة) = الذي يعيد إنتاج ضريبة أول سند فيه أصناف خاضعة (نسبة الضريبة المطبوعة في سطر الصنف > 0)؛
         فإن لم يكن في الأول صنف خاضع أُخذ من أول سند لاحق فيه خاضع.
     وأي سند بعد المرجع يخالف القاعدة تظهر مخالفته ملاحظةً فيُحال للمراجع (انظر report_writer). يُسجَّل السندان المرجعان في evidence."""
-    ref = next((r for r in b.receipts if r.printed.get("net") and r.printed.get("nupco") is not None and r.printed["net"] > 0), None)
-    rate = D(str(round(ref.printed["nupco"] / ref.printed["net"], 4))) if ref else rules.commission
+    ref = next((r for r in b.receipts if r.printed.get("net") and _printed_commission(r) is not None and r.printed["net"] > 0), None)
+    rate = D(str(round(_printed_commission(ref) / ref.printed["net"], 4))) if ref else rules.commission
     tax_ref, mode = None, "partial_net_comm"
     for r in b.receipts:
         pv = r.printed.get("vat")
@@ -328,8 +470,113 @@ def infer_bundle_rules(b: Bundle, rules: Rules) -> Rules:
     return out
 
 
-def check_bundle(b: Bundle, rules: Rules) -> list[Result]:
-    if rules.no_contract:
+def _rounded_print(shown: D, exact: D) -> bool:
+    """The receipt prints the order's price with fewer decimals (129.08 for 129.07500): the same price, rounded half up.
+    The computation keeps the order's exact price; both printed readings stay in the report."""
+    places = -shown.as_tuple().exponent
+    return -exact.normalize().as_tuple().exponent > places >= 0 and         exact.quantize(D(1).scaleb(-places), rounding=ROUND_HALF_UP) == shown
+
+
+def _printed_commission(r: Receipt) -> D | None:
+    """The commission the receipt prints, or, on a form without a commission line (the NUPCO «مذكرة استلام»),
+    the printed total less the printed net and VAT: a difference of printed values, never a contract rate."""
+    p = r.printed
+    if p.get("nupco") is not None:
+        return p["nupco"]
+    if all(p.get(k) is not None for k in ("net", "vat", "total")):
+        return p["total"] - p["net"] - p["vat"]
+    return None
+
+
+def _receipt_rate(r: Receipt) -> D | None:
+    net, fee = r.printed.get("net"), _printed_commission(r)
+    return D(str(round(fee / net, 3))) if net and fee is not None and net > 0 else None
+
+
+def _receipt_mode(r: Receipt, rate: D, vat_rate: D) -> str | None:
+    """Which tax base reproduces this receipt's printed VAT (taxable lines from their printed rate)."""
+    pv = r.printed.get("vat")
+    rows = [(r2(i.qty * i.unit_price), (i.vat_rate or D(0)) > 0) for i in r.items]
+    if pv is None or not any(tx for _, tx in rows):
+        return None
+    for m in ("partial_net_comm", "partial_net"):
+        tot = sum((r2((n + (r2(n * rate) if m.endswith("comm") else D(0))) * vat_rate) for n, tx in rows if tx), D(0))
+        if abs(tot - pv) <= TOL:
+            return m
+    return None
+
+
+def infer_rules_from_receipts(receipts: list[Receipt], rules: Rules) -> Rules:
+    """Competition without a contract: the pattern shared by most receipts, not one reference receipt.
+
+    Commission rate = the rate printed by the majority of receipts; tax base = the base that reproduces
+    the printed VAT of the majority of receipts that have taxable lines. A majority is a pattern, not
+    proof: receipts that depart from it are referred, and only the contract can say which side is right.
+    """
+    rates = Counter(x for x in (_receipt_rate(r) for r in receipts) if x is not None)
+    rate = rates.most_common(1)[0][0] if rates else rules.commission
+    modes = Counter(m for m in (_receipt_mode(r, rate, rules.vat_rate) for r in receipts) if m)
+    mode = modes.most_common(1)[0][0] if modes else "partial_net_comm"
+    out = Rules(rules.competition, commission=rate, vat_rate=rules.vat_rate, tax_mode=mode, no_contract=True)
+    out.evidence = {"inferred": {"basis": "majority", "commission": str(rate), "tax_mode": mode,
+                                 "commission_votes": {str(k): v for k, v in rates.items()},
+                                 "tax_mode_votes": dict(modes), "receipts": len(receipts)}}
+    return out
+
+
+def consistency_issues(receipts: list[Receipt]) -> dict[str, list[Issue]]:
+    """Without a contract, the same item must be treated the same way in every receipt.
+
+    - tax status: an item printed as taxable in some receipts and exempt in others is referred in ALL
+      of them; the pattern proves a contradiction, not which side is correct;
+    - unit price: receipts whose price for an item differs from the price most receipts print are
+      referred; with no strict majority, all receipts of that item are referred;
+    - commission rate: receipts whose printed commission/net ratio differs from the majority rate.
+    """
+    out: dict[str, list[Issue]] = {}
+
+    def add(sto, issue):
+        out.setdefault(sto, []).append(issue)
+
+    taxed, prices = defaultdict(lambda: defaultdict(set)), defaultdict(lambda: defaultdict(set))
+    for r in receipts:
+        for i in r.items:
+            if i.vat_rate is not None:
+                taxed[i.code][(i.vat_rate or D(0)) > 0].add(r.sto)
+            prices[i.code][i.unit_price].add(r.sto)
+    for code, by in taxed.items():
+        if len(by) > 1:
+            yes, no = sorted(by[True]), sorted(by[False])
+            why = (f"الصنف {code} خاضع للضريبة في {len(yes)} سند ومعفى في {len(no)} سند؛ "
+                   "اختلاف المعاملة يثبت خطأً في أحدهما ويحسمه العقد")
+            for sto in yes + no:
+                add(sto, Issue("tax_status_inconsistent", why, code))
+    for code, by in prices.items():
+        if len(by) > 1:
+            counts = {p: len(s) for p, s in by.items()}
+            top = max(counts.values())
+            majority = [p for p, n in counts.items() if n == top]
+            strict = len(majority) == 1 and top > sum(counts.values()) / 2
+            for price, stos in by.items():
+                if strict and price == majority[0]:
+                    continue
+                why = (f"سعر {code} في هذا السند {price} يخالف السعر الغالب {majority[0]} في بقية السندات" if strict else
+                       f"سعر {code} يختلف بين السندات ({'، '.join(str(p) for p in sorted(by))}) دون سعر غالب")
+                for sto in sorted(stos):
+                    add(sto, Issue("price_inconsistent", why, price, majority[0] if strict else None))
+    rates = {r.sto: _receipt_rate(r) for r in receipts}
+    votes = Counter(v for v in rates.values() if v is not None)
+    if len(votes) > 1:
+        top, n = votes.most_common(1)[0]
+        for sto, v in rates.items():
+            if v is not None and v != top:
+                add(sto, Issue("commission_rate_inconsistent",
+                               f"نسبة عمولة نوبكو المطبوعة {v * 100}% تخالف النسبة الغالبة {top * 100}% في {n} سند", v, top))
+    return out
+
+
+def check_bundle(b: Bundle, rules: Rules, consistency: bool = True) -> list[Result]:
+    if rules.no_contract and rules.tax_mode == "inferred":
         rules = infer_bundle_rules(b, rules)
         b.inferred_rules = rules                         # يقرؤه كاتب التقرير لذكر المستنتج في بند المراجعة
     pos = {p.number: p for p in b.pos}
@@ -347,4 +594,9 @@ def check_bundle(b: Bundle, rules: Rules) -> list[Result]:
             res.issues.append(Issue("duplicate_sto", f"رقم السند {r.sto} مكرر"))
         seen.add(r.sto)
         out.append(res)
+    if rules.no_contract and consistency:
+        # بلا عقد: الصنف نفسه يُعامل معاملة واحدة في كل سندات الدفعة؛ المخالف يُحال ولا يُحكم بأيهما الصحيح
+        found = consistency_issues(b.receipts)
+        for res in out:
+            res.issues.extend(found.get(res.sto, []))
     return out

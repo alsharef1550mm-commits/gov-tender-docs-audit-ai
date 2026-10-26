@@ -21,6 +21,8 @@ from PIL import Image
 import extract
 import pdfx
 import scan_reader
+from number_reading import decimal_reading, amount_reading, quantity_reading, page_separator
+from reading_policy import reading_signals, reconcile_readings, POLICY_VERSION, MAX_REREADS
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROMPT_PATH = os.path.join(HERE, "vlm", "space_gpu", "prompt_typed.txt")
@@ -42,31 +44,67 @@ RECEIPT_FACTORS = (Decimal("1.04"), Decimal("1.19"), Decimal("1.196"))
 RE_STO, RE_PON, RE_INV = extract.RE_STO, extract.RE_PON, re.compile(r"^(?:TF)?\d{10}$")
 
 
+_SEP = None   # decimal separator the page being built proves by itself (number_reading.page_separator)
+
+
 def _d(x):
-    if x is None:
-        return None
-    try:
-        return Decimal(re.sub(r"[,\s]", "", str(x)))
-    except InvalidOperation:
-        return None
+    return decimal_reading(x, _SEP)
 
 
 def _with_halala(v, h):
-    d = _d(v)
-    hh = _d(h) if h not in (None, "") else None
-    if d is not None and hh is not None and d == d.to_integral_value():
-        return d + hh / 100
-    return d
+    return amount_reading(v, h, _SEP)
+
+
+NON_CRITICAL = {"description", "unit", "batch", "line_no"}     # item cells no audit figure uses (as pairs_reader)
+
+
+def _code(x):
+    """An item code with a neighbouring label read into its cell («5110157700000 E.D.Date :»): the trailing words carry
+    no digit, so they are not part of the code. Anything else is returned as read."""
+    if x is None:
+        return None
+    s = str(x).strip()
+    m = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9./-]*\d[A-Za-z0-9./-]*)\s+([^\d]+)", s)
+    # or a long numeric code followed by another cell's «label : value» («5119190501600 E.D.Date : 09-10-2026»)
+    m = m or re.fullmatch(r"(\d{8,})\s+[A-Za-z؀-ۿ][^:\d]*:.*", s)
+    return m.group(1) if m else s
+
+
+def _qty(x):
+    return quantity_reading(x, _SEP)    # shared with reading_policy (number_reading.quantity_reading)
+
+
+def _rate(x):
+    """A printed tax rate such as "15%" or "٪١٥" as a fraction; anything else is None (never inferred)."""
+    if x is None:
+        return None
+    s = str(x).strip()
+    if not re.fullmatch(r"[%٪]?\s*[\d٠-٩.٫]+\s*[%٪]?", s) or not re.search(r"[%٪]", s):
+        return None
+    v = _d(re.sub(r"[%٪\s]", "", s))
+    return v / 100 if v is not None and 0 <= v <= 100 else None
 
 
 def _clean_id(x, rx):
     if x is None:
         return None
     s = re.sub(r"\s", "", str(x))
-    return s if rx.match(s) else None
+    # Owner's rule (2026-10-25): a receipt number is always "STO" + 10 digits, so a scan reading of the
+    # letter O as zero ("ST0" + 10 digits) can only be that number. The raw reading stays in raw_readings.
+    if rx is RE_STO and re.fullmatch(r"ST0\d{10}", s):
+        s = "STO" + s[3:]
+    return s if rx.fullmatch(s) else None
+
+
+def pairs_mode():
+    """VLM_FORMAT=pairs selects the label/value reader (pairs_reader); default keeps the schema reader."""
+    return os.environ.get("VLM_FORMAT") == "pairs"
 
 
 def call_vlm(img, base_url=None, model=None, prompt_path=None):
+    if pairs_mode():
+        import pairs_reader
+        return pairs_reader.read_page(img, base_url, model)
     base_url = base_url or os.environ["VLM_URL"]
     model = model or os.environ.get("VLM_MODEL", "Qwen/Qwen3.5-9B")
     buf = io.BytesIO()
@@ -123,16 +161,17 @@ def _row_key(it):
 
 
 def merge_preds(p1, p2):
-    """إجماع قارئين مستقلين (نموذج/موجّه مغايران): لا يُعتمد إلا ما اتفقا عليه حرفياً.
+    """مقارنة قراءتين؛ اتفاقهما ليس تحققاً بشرياً أو إثباتاً لصحة المطبوع.
     - نوع الصفحة مختلف أو قراءة فاشلة: الصفحة بلا محتوى ويُسجَّل التعارض (_type_conflict).
     - معرّف مختلف: يُصفَّر (_id_conflicts). صف بلا نظير مطابق في القراءة الأخرى: يُسقَط (_dropped). إجمالي مختلف: يُصفَّر.
-    دراسة 407 (صفحات حقيقية الحقول): اتفاق قارئين مغايرين = 15/32 صفحة بصفر خطأ، بينما اتفاق قراءتين من النموذج نفسه ببيئات صورة مختلفة أخطأ في ~20% (خطأ منهجي مشترك)."""
+    تحفظ القراءتان للمراجعة؛ اختلاف الموجّه وحده لا يثبت استقلال الأخطاء."""
     if not isinstance(p1, dict) or not isinstance(p2, dict) or p1.get("page_type") != p2.get("page_type"):
         return {"page_type": "other", "ids": {}, "dates": {}, "items": [], "totals": {}, "_type_conflict": True,
-                "_failed": not (isinstance(p1, dict) and isinstance(p2, dict))}
-    out = {"page_type": p1.get("page_type"), "ids": {}, "dates": dict(p1.get("dates") or {}), "items": [], "totals": {}, "_id_conflicts": [], "_dropped": []}
+                "_failed": not (isinstance(p1, dict) and isinstance(p2, dict)),
+                "_readings": [p1, p2], "_agreement_is_source_verification": False}
+    out = {"page_type": p1.get("page_type"), "ids": {}, "dates": dict(p1.get("dates") or {}), "items": [], "totals": {}, "_id_conflicts": [], "_dropped": [], "_value_conflicts": []}
     i1, i2 = p1.get("ids") or {}, p2.get("ids") or {}
-    rel = RELEVANT_IDS.get(p1.get("page_type"), CRITICAL_IDS)
+    rel = RELEVANT_IDS.get(p1.get("page_type"), CRITICAL_IDS) | {"tender_no", "quarter"}
     for k in set(i1) | set(i2):
         if k not in rel:
             out["ids"][k] = i1.get(k) if i1.get(k) == i2.get(k) else None      # حقل غير معتمد لهذا النوع: لا يُحال عند الاختلاف
@@ -156,6 +195,15 @@ def merge_preds(p1, p2):
     t1, t2 = p1.get("totals") or {}, p2.get("totals") or {}
     for k in set(t1) | set(t2):
         out["totals"][k] = t1.get(k) if (_num(t1.get(k)) == _num(t2.get(k))) else None
+    for k in set(t1) | set(t2):
+        if _num(t1.get(k)) != _num(t2.get(k)):
+            out['_value_conflicts'].append('totals.' + k)
+    for k in set(p1.get('dates') or {}) | set(p2.get('dates') or {}):
+        if (p1.get('dates') or {}).get(k) != (p2.get('dates') or {}).get(k):
+            out['_value_conflicts'].append('dates.' + k)
+            out['dates'][k] = None
+    out['_readings'] = [p1, p2]
+    out['_agreement_is_source_verification'] = False
     return out
 
 
@@ -174,8 +222,9 @@ def _cached_call(img, url, model, prompt):
     key = None
     if cdir:
         os.makedirs(cdir, exist_ok=True)
-        pp = prompt or PROMPT_PATH
-        key = hashlib.sha1(img.tobytes() + (model or os.environ.get("VLM_MODEL", "")).encode() + open(pp, "rb").read()).hexdigest()
+        pp = prompt or (os.path.join(HERE, "vlm", "prompt_pairs.txt") if pairs_mode() else PROMPT_PATH)
+        key = hashlib.sha1(img.tobytes() + (model or os.environ.get("VLM_MODEL", "")).encode() + open(pp, "rb").read()
+                           + (b"pairs" if pairs_mode() else b"")).hexdigest()
         fp = os.path.join(cdir, key + ".json")
         if os.path.exists(fp):
             return json.load(open(fp, encoding="utf-8"))
@@ -219,18 +268,8 @@ def _tess_digits10(img):
 
 
 def _arbitrate_ids(merged, p1, p2, img):
-    """معرّف اختلف فيه القارئان: يُرجَّح المرشح الذي تظهر أرقامه العشرة في قراءة Tesseract المستقلة إن ظهر واحد فقط؛ وإلا يبقى التعارض."""
-    if not merged.get("_id_conflicts"):
-        return merged
-    digits = _tess_digits10(img)
-    for k in list(merged["_id_conflicts"]):
-        cands = [(p.get("ids") or {}).get(k) for p in (p1, p2)]
-        keys = [re.sub(r"\D", "", str(c))[-10:] if c else None for c in cands]
-        hit = [c for c, kk in zip(cands, keys) if c and kk and kk in digits]
-        if len(set(hit)) == 1:
-            merged["ids"][k] = hit[0]
-            merged["_id_conflicts"].remove(k)
-            merged.setdefault("_arbitrated", []).append(k)
+    # A number appearing elsewhere on the page does not prove its field role.
+    # Keep conflicting identities unresolved until their labelled source is checked.
     return merged
 
 
@@ -242,13 +281,16 @@ def read_preds(path, workers=4, progress=None):
     n = pdfx.page_count(path)
     imgs = []                                     # التصيير تسلسلي: pdfium غير آمن مع الخيوط (انهيار/فشل تحميل متقطع)؛ الخيوط لاستدعاءات النموذج فقط
     doc = pdfium.PdfDocument(path)
-    raw = [doc[i].render(scale=2.0).to_pil() for i in range(n)]       # تصيير تسلسلي (pdfium)
+    scale = 3.0 if pairs_mode() else 2.0                                 # الأزواج: قرب دقة صفحات التدريب (~2100×2700)
+    raw = [doc[i].render(scale=scale).to_pil() for i in range(n)]       # تصيير تسلسلي (pdfium)
     doc.close()
 
     key = os.path.abspath(path)
 
     def prep(i):
         img = raw[i]                                              # الاتجاه يُصحَّح قبل الرفع بالأداة المستقلة (خارج الفحص)
+        if pairs_mode():
+            return img                            # قارئ الأزواج دُرّب على صفحات ملونة بدقة كاملة؛ لا تكبير ولا شحذ
         img.thumbnail((1600, 1600))
         return _prep_up(img)                     # أفضل إعداد قيس: تكبير 1.5× وشحذ وتباين (vlm/space_gpu: typed:up)
     with ThreadPoolExecutor(workers) as ex:      # كشف الاتجاه يستدعي Tesseract كعملية مستقلة فيتوازى بأمان
@@ -260,10 +302,19 @@ def read_preds(path, workers=4, progress=None):
     def one(i):
         img = imgs[i]
         p1 = _cached_call(img, None, None, None)
+        if isinstance(p1, dict):
+            import copy, hashlib
+            p1 = copy.deepcopy(p1)
+            p1['_page_evidence'] = {'file': os.path.basename(path), 'page': i+1,
+                'image_sha256': hashlib.sha256(img.tobytes()).hexdigest(), 'size': list(img.size),
+                'model': os.environ.get('VLM_MODEL','Qwen/Qwen3.5-9B'), 'field_boxes_verified': False}
         if not r2:
             return p1
         p2 = _cached_call(img, r2["url"], r2["model"], r2["prompt"])
-        return _arbitrate_ids(merge_preds(p1, p2), p1, p2, img)
+        merged = merge_preds(p1, p2)
+        merged["_readings"] = [p1, p2]
+        merged["_agreement_is_source_verification"] = False
+        return merged
     out = []
     with ThreadPoolExecutor(workers) as ex:
         for k, p in enumerate(ex.map(one, range(n)), 1):
@@ -292,11 +343,16 @@ def bundle_from_preds(fname: str, preds: list) -> extract.Bundle:
     r_order, types = [], {}
     last_rec = last_inv = last_po = None
     issues = {}                                       # صفحات لم يتفق عليها القارئان: {رقم الصفحة: وصف}
+    tenders = []
     for n, p in enumerate(preds, 1):
         if not isinstance(p, dict):
             types[n] = "other"
             issues[n] = {"kind": "failed", "why": "تعذرت قراءة الصفحة آلياً"}
             continue
+        global _SEP
+        _SEP = page_separator(p)                         # «1,320» is read by the convention this page itself proves
+        p = {**p, "items": [{**it, "item_code": _code(it.get("item_code"))} if isinstance(it, dict) else it
+                            for it in p.get("items") or []]}
         prim = PRIMARY_ID.get(p.get("page_type"))
         if p.get("_type_conflict") or (prim and prim in (p.get("_id_conflicts") or [])):
             types[n] = "other"                            # لا تُنسب لمستند سابق صامتاً: هوية الصفحة لم تثبت
@@ -306,12 +362,19 @@ def bundle_from_preds(fname: str, preds: list) -> extract.Bundle:
         if p.get("_id_conflicts"):
             issues[n] = {"kind": "link", "why": "القارئان لم يتفقا على رقم مرتبط: " + "، ".join(p["_id_conflicts"]) + " (تُصفَّر القيمة ويُحال الربط)"}
         ty = p.get("page_type")
-        if p.get("_dropped") and ty in ("receipt", "purchase_order"):
+        if p.get("_dropped") and ty in ("receipt", "purchase_order", "invoice"):
             issues[n] = {"kind": "rows", "why": "أُسقطت من التدقيق أصناف لم يتفق عليها القارئان: " + "، ".join(p["_dropped"][:8])}
         ty = p.get("page_type")
         ids, items, tot = p.get("ids") or {}, p.get("items") or [], p.get("totals") or {}
         dates = p.get("dates") or {}
         types[n] = {"purchase_order": "po", "receipt": "receipt", "invoice": "invoice"}.get(ty, "other")
+        if ty in ("receipt", "invoice", "purchase_order") and ids.get("tender_no"):
+            tenders.append((n, str(ids["tender_no"]).strip()))     # the tender number exactly as printed, any format
+        own = {"receipt": ("receipt_no", RE_STO), "invoice": ("invoice_no", RE_INV), "purchase_order": ("po_no", RE_PON)}.get(ty)
+        if own and not _clean_id(ids.get(own[0]), own[1]):
+            # Its own number was not read: it may be a separate document, so the page is shown for review
+            # (and holds the document it is attached to) instead of being merged or dropped silently.
+            issues.setdefault(n, {'kind': 'reading', 'why': 'صفحة مستند لم يُقرأ رقمه: قد تكون مستنداً مستقلاً؛ يلزم التحقق من الصفحة'})
         if ty == "receipt":
             sto = _clean_id(ids.get("receipt_no"), RE_STO) or last_rec
             if not sto:
@@ -327,27 +390,20 @@ def bundle_from_preds(fname: str, preds: list) -> extract.Bundle:
             r.due = r.due or dates.get("due_date")
             r.pages.append(n)
             for k, it in enumerate(items, 1):
-                q, up = _d(it.get("qty")), _with_halala(it.get("unit_price"), it.get("unit_price_halala"))
+                q, up = _qty(it.get("qty")), _with_halala(it.get("unit_price"), it.get("unit_price_halala"))
                 lt = _with_halala(it.get("line_total"), it.get("line_total_halala"))
-                if not it.get("item_code") or q is None or up is None or lt is None:
-                    continue                                                    # صف ناقص: لا يُخمَّن (يظهر كنقص في السند)
-                if it.get("line_total_halala") in (None, "") and lt == lt.to_integral_value():
-                    # عمود الريال وحده: إن لم يطابق معاملات العقود لكن جزءه الصحيح يطابقها فالهللة لم تُقرأ.
-                    # لا يُنسب للسند خطأ حسابي: القيمة تُترك غير مقروءة وتُحال.
-                    full = [q * up * f for f in RECEIPT_FACTORS]
-                    if not any(abs(lt - x) <= Decimal("0.02") for x in full) and any(Decimal(int(x)) == lt for x in full):
-                        r.__dict__.setdefault("flags", []).append({"line": k, "code": it["item_code"], "seen": str(lt), "page": n})
-                        lt = None
+                if not it.get("item_code") or q is None or up is None:
+                    # صف ناقص: لا يُخمَّن، ويُحال السند ببند واضح (engine: items_unread). The line total is a check
+                    # figure only (the net is quantity × the order's price): a row without it is still computed.
+                    gone = [ar for key, ar, v in (("item_code", "رمز الصنف", it.get("item_code")), ("qty", "الكمية", q),
+                                                   ("unit_price", "سعر الوحدة", up)) if not v and v != 0]
+                    r.__dict__.setdefault("incomplete_rows", []).append(f"ص{n} سطر {it.get('line_no') or k}: {'، '.join(gone)} غير مقروء")
+                    continue
                 try:
                     ln = int(str(it.get("line_no")))
                 except Exception:  # noqa: BLE001
                     ln = k
-                rate = None                                                       # مخطط القراءة بلا عمود الملاحظات: الخضوع يُستدل عليه من إجمالي السطر المطبوع
-                if lt is not None:                                                # ثم يقابله المحرك بالتعميد (taxable_vs_po) فلا يمر خضوع خاطئ صامتاً
-                    if abs(lt - q * up * RECEIPT_FACTORS[0]) <= Decimal("0.02"):
-                        rate = Decimal(0)
-                    elif any(abs(lt - q * up * f) <= Decimal("0.02") for f in RECEIPT_FACTORS[1:]):
-                        rate = Decimal("0.15")
+                rate = _rate(it.get("vat_rate"))  # the printed rate only; tax status is never inferred from arithmetic
                 r.items.append(RItem(ln, it["item_code"], it.get("unit") or "", q, up, lt, rate, Ev(fname, n, box)))
             mp = {"net_excl_vat": "net", "commission": "nupco", "vat": "vat", "total_incl": "total", "total": "final",
                   "discount": "discount", "shipping": "shipping", "penalty": "penalty"}
@@ -370,16 +426,24 @@ def bundle_from_preds(fname: str, preds: list) -> extract.Bundle:
             v.pages.append(n)
             v.copy_pages.setdefault(v.cur_copy, []).append(n)
             for k, it in enumerate(items, 1):
-                q, up, tt = _d(it.get("qty")), _d(it.get("unit_price")), _d(it.get("line_total"))
+                q, up, tt = _qty(it.get("qty")), _d(it.get("unit_price")), _d(it.get("line_total"))
                 comm, vat = _d(it.get("commission")), _d(it.get("vat"))
+                line_sto = _clean_id(it.get("_receipt_no"), RE_STO)
+                if not it.get("item_code") and line_sto and _d(it.get("line_net")) is not None:
+                    # A collective invoice lists each receipt's net without item lines: an allocation, not an item.
+                    v.allocations[line_sto] = _d(it.get("line_net"))
+                    if _clean_id(it.get("_po_no"), RE_PON):
+                        v.allocation_pon[line_sto] = it["_po_no"]
+                    continue
                 if not it.get("item_code") or None in (q, up, tt, comm, vat):
                     continue
                 net = q * up
                 if abs(net + comm + vat - tt) > Decimal("0.02"):
-                    # إجمالي بند الفاتورة المقروء لا يساوي الصافي+العمولة+الضريبة: قراءة غير موثوقة؛ لا يُعتمد ويُحال
+                    # تعارض حسابي لا يحدد هل السبب قراءة أم مستند؛ تحفظ القيم وتُحال.
                     v.__dict__.setdefault("flags", []).append({"code": it["item_code"], "seen": str(tt), "expected": str(net + comm + vat), "page": n})
-                    continue
-                v.items.append(extract.IItem(_clean_id(ids.get("receipt_no"), RE_STO) or "", k, it["item_code"], it.get("batch") or "",
+                    # Preserve the printed total and row; the contradiction is evidence.
+                line_sto = _clean_id(it.get("_receipt_no"), RE_STO)        # رقم السند المطبوع في سطر الفاتورة نفسه (قارئ الأزواج)
+                v.items.append(extract.IItem(line_sto or _clean_id(ids.get("receipt_no"), RE_STO) or "", k, it["item_code"], it.get("batch") or "",
                                              up, q, net, comm, Decimal(0), net + comm, Decimal(0), vat, tt, Ev(fname, n, box),
                                              copy=v.cur_copy))
         elif ty == "purchase_order":
@@ -392,7 +456,7 @@ def bundle_from_preds(fname: str, preds: list) -> extract.Bundle:
             last_po = num
             po.pages.append(n)
             for k, it in enumerate(items, 1):
-                q, up, lt, vat = _d(it.get("qty")), _d(it.get("unit_price")), _d(it.get("line_total")), _d(it.get("vat")) or Decimal(0)
+                q, up, lt, vat = _qty(it.get("qty")), _d(it.get("unit_price")), _d(it.get("line_total")), _d(it.get("vat")) or Decimal(0)
                 if not it.get("item_code") or None in (q, up, lt):
                     continue
                 try:
@@ -401,7 +465,18 @@ def bundle_from_preds(fname: str, preds: list) -> extract.Bundle:
                     ln = k
                 po.items.append(extract.POItem(ln, it["item_code"], it.get("unit") or "", q, up, lt, vat, lt + vat,
                                                dates.get("due_date"), Ev(fname, n, box)))
+    for v in invs.values():
+        if v.allocations and not v.items:
+            v.__dict__["collective"] = True           # as extract.parse_invoices marks a collective invoice
     b = extract.Bundle(fname, len(preds), types, list(pos.values()), [recs[s] for s in r_order], list(invs.values()), "vlm")
+    for n, p in enumerate(preds, 1):
+        critical = ([u for u in (p.get('unreadable_fields') or []) if not (u.startswith('items.') and u.split('.')[-1] in NON_CRITICAL)]
+                    if isinstance(p, dict) else [])
+        if isinstance(p, dict) and (p.get('_reading_review') or critical or p.get('_value_conflicts')):
+            issues.setdefault(n, {'kind': 'reading', 'why': 'قراءة غير محسومة؛ القيم الأصلية محفوظة ويلزم فحص موضعها في الصفحة'})
+    b.__dict__["raw_readings"] = preds
+    b.__dict__["tender_pages"] = tenders
+    b.__dict__["reading_policy"] = POLICY_VERSION
     b.__dict__["agree_issues"] = issues
     return b
 
@@ -411,33 +486,14 @@ def _norm_price(x):
 
 
 def suspect_pages(b):
-    """صفحات تستحق إعادة قراءة موجَّهة: بند في سند لا يظهر في فاتورته المقروءة (الصفحتان مستقلتان فاتفاقهما دليل)، أو رقم فاتورة السند
-    غير موجود في الربطة، أو إجمالي سطر غير مقروء كاملاً. تعيد {رقم الصفحة: سبب}."""
-    out = {}
-    invs = {v.number: v for v in b.invoices}
-    for r in b.receipts:
-        if getattr(r, "flags", None):
-            for pg in r.pages:
-                out.setdefault(pg, "إجمالي سطر غير مقروء")
-        v = invs.get(r.invoice_no)
-        if v is None:
-            for pg in r.pages:
-                out.setdefault(pg, "فاتورة السند غير موجودة في الربطة")
-            continue
-        rows = [(i.code, i.qty, _norm_price(i.unit_price)) for i in v.items]
-        for it in r.items:
-            key = (it.code, it.qty, _norm_price(it.unit_price))
-            if key in rows:
-                rows.remove(key)                                   # كل صف فاتورة يُستهلك مرة (الفاتورة المشتركة بين سندات)
-                continue
-            for pg in r.pages + v.pages:
-                out.setdefault(pg, f"بند {it.code} لا يطابق بنود الفاتورة {v.number}")
-    return out
+    """Only reading evidence triggers retries; arithmetic and invoice absence do not."""
+    return {n: '؛ '.join(signals) for n, p in enumerate(getattr(b, 'raw_readings', []), 1)
+            if (signals := reading_signals(p))}
 
 
 _ANGLES: dict = {}                               # (مسار الملف، رقم الصفحة) -> زاوية التصحيح المطبّقة في القراءة الأولى
-REREAD_MAX_SHARE = 0.4                           # إن اشتُبه في أكثر من 40% من الصفحات فالقالب مختلف وإعادة القراءة لا تفيد: تُتخطى
-RETRY_SETTINGS = ((3.0, 2200), (2.0, 1200))      # (مقياس التصيير، الحد الأقصى للضلع) لإعادتين بإعداد صورة مغاير
+REREAD_MAX_SHARE = 0.4  # Resource bound only; exceeding it does not diagnose the design.
+RETRY_SETTINGS = ((3.0, 2200),)  # One enhanced read: render scale, maximum side.
 
 
 def _reread_pages(path, pages, attempt, progress=None):
@@ -460,29 +516,32 @@ def _reread_pages(path, pages, attempt, progress=None):
     return res
 
 
-def read_bundle_vlm(path: str, workers: int = 4, progress=None, max_retries: int = 2) -> extract.Bundle:
-    """قراءة الربطة ثم إعادة قراءة موجَّهة (حتى مرتين) للصفحات المشتبه بها فقط؛ تُقبل القراءة الجديدة إن لم تفشل،
-    والقرار النهائي لمطابقة المستندات المطبوعة مستقلةً (لا لعدد المحاولات). يُسجَّل ما أُعيد قراءته في b.retried_pages."""
+def read_bundle_vlm(path: str, workers: int = 4, progress=None, max_retries: int = 1) -> extract.Bundle:
+    """At most one enhanced reread. Changed values require source review.
+
+    Without validated field boxes, enhancement is page-level and is recorded as
+    such; we do not claim a crop or a verified source from model agreement.
+    """
     fname = os.path.basename(path)
     preds = read_preds(path, workers, progress)
     retried = {}
     skipped = 0
-    if _reader2():
-        max_retries = 0                                # مع إجماع قارئين لا إعادة قراءة بقارئ واحد (تتجاوز الدمج)
-    for attempt in range(1, max_retries + 1):
-        b = bundle_from_preds(fname, preds)
-        sus = suspect_pages(b)
-        if not sus:
-            break
-        if len(preds) >= 10 and len(sus) > REREAD_MAX_SHARE * len(preds):   # ربطة كبيرة أغلب صفحاتها مشتبه بها: قالب مختلف، فلا تُكرَّر القراءة؛ الربطة الصغيرة تُعاد دائماً
-            skipped = len(sus)
-            break
-        new = _reread_pages(path, sorted(sus), attempt, progress)
-        for pg, p in new.items():
-            if isinstance(p, dict):
-                preds[pg - 1] = p
-                retried.setdefault(pg, []).append(sus[pg])
+    initial = bundle_from_preds(fname, preds)
+    suspects = suspect_pages(initial)
+    if _reader2() or pairs_mode():
+        max_retries = 0  # Two reads already exist, or the pairs reader did its own zoomed re-read.
+    if len(preds) >= 10 and len(suspects) > REREAD_MAX_SHARE * len(preds):
+        skipped = len(suspects)
+        max_retries = 0
+    if min(MAX_REREADS, max(0, max_retries)) and suspects:
+        new = _reread_pages(path, sorted(suspects), 1, progress)
+        for pg, reason in suspects.items():
+            preds[pg-1] = reconcile_readings(preds[pg-1], new.get(pg))
+            retried[pg] = [reason]
     b = bundle_from_preds(fname, preds)
-    b.__dict__["retried_pages"] = retried
-    b.__dict__["reread_skipped"] = skipped              # عدد الصفحات المشتبه فيها حين تُخطّيت إعادة القراءة (0 = لم تُتخطَّ)
+    for pg in suspects:
+        b.agree_issues.setdefault(pg, {'kind': 'reading', 'why': 'سبب شك في القراءة؛ اتفاق القراءات لا يثبت المطبوع ويلزم مراجعة الدليل'})
+    b.__dict__['retried_pages'] = retried
+    b.__dict__['reread_skipped'] = skipped
+    b.__dict__['reread_scope'] = 'enhanced_page_without_verified_field_boxes'
     return b

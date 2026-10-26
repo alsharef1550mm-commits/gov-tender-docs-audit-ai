@@ -1,0 +1,16 @@
+Transcribe this financial document page as printed label/value pairs. This is transcription only: do not decide what a field means, do not calculate, repair, balance or borrow any value.
+
+Return only this JSON:
+{
+ "page_type": "receipt | purchase_order | invoice | inspection | contract | other",
+ "title": "<page title exactly as printed>",
+ "header": [["<label>", "<value>"], ...],
+ "items": [[["<label>", "<value>"], ...], ...],
+ "totals": [["<label>", "<value>"], ...]
+}
+
+header: every labelled field outside the item area (references, numbers, dates, quarter, inspection or violation details), wherever it is printed, including a footer.
+items: one inner list per item row or item card, in physical order from the first item to the last. Inside an item card, pair each value with the small label printed in its own box, directly above or beside it. In a ruled table with one header row, pair every cell with its own column header. When a column header has sub-headers (for example riyal and halala parts), write the label as "<header> / <sub-header>".
+totals: every labelled summary amount printed after or beside the items.
+
+Copy each label exactly as printed, in its printed language. Copy each value exactly as printed, character by character: keep Arabic-Indic digits (٠-٩) as Arabic-Indic and Latin digits (0-9) as Latin, independently for every cell; keep separators, decimal places, percent signs, leading zeros, letters and the printed date format. A neighbouring cell's digit style or format is never evidence for this cell. Include zero values such as 0.00. Never skip a labelled value because it equals another value. Use null for a value you cannot read. Do not add pairs for text that has no label.

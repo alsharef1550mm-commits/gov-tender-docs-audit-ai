@@ -23,6 +23,7 @@ import extract
 import invoice_match as IM
 import report_style as RS
 import report_template as T
+from document_order import ordered_bundle_paths, ordered_receipts, competition_receipt_ids
 from report_writer import _pick_after, _runs, _same_row, _save, review_item
 
 SEP = "، "
@@ -53,13 +54,13 @@ def _work(args):
             with open(path, "rb") as f:
                 for chunk in iter(lambda: f.read(1 << 20), b""):
                     h.update(chunk)
-            cp = os.path.join(cache_dir, h.hexdigest()[:24] + ".pkl")
+            cp = os.path.join(cache_dir, h.hexdigest()[:24] + "-evidence-v1.pkl")
             if os.path.exists(cp):
                 import pickle
                 with open(cp, "rb") as f:
                     return pickle.load(f)                 # استئناف: نتيجة الربطة محفوظة
         b = extract.read_bundle(path)
-        out = {"path": path, "bundle": b, "results": engine.check_bundle(b, rules)}
+        out = {"path": path, "bundle": b, "results": engine.check_bundle(b, rules, consistency=not rules.no_contract)}
         if cp:
             import pickle
             with open(cp + ".tmp", "wb") as f:
@@ -72,12 +73,12 @@ def _work(args):
 
 def collect_competition(bundle_paths, contract_path, code_map=None, workers=1, progress=None, cache_dir=None):
     code_map = code_map or {}
-    first = os.path.basename(sorted(bundle_paths)[0])
+    first = os.path.basename(ordered_bundle_paths(bundle_paths)[0])
     mm = re.match(r"(.+)-\d{2}-\d{3}\.pdf$", first)
     comp_no = mm.group(1) if mm else os.path.splitext(first)[0]      # الاسم لا يشترط صيغة معينة: عند عدم المطابقة يُستعمل اسم الملف
     rules = engine.read_rules(contract_path, comp_no)
-    contract = CD.read_contract(contract_path)
-    paths = sorted(bundle_paths)
+    contract = CD.read_contract(contract_path) if contract_path else CD.ContractData()      # بلا عقد: لا جدول أصناف ولا دفعات
+    paths = ordered_bundle_paths(bundle_paths)
     if workers > 1:
         with Pool(workers) as pool:
             outs = []
@@ -96,6 +97,19 @@ def collect_competition(bundle_paths, contract_path, code_map=None, workers=1, p
     for e in errors:
         unresolved.append({"reason": "تعذّرت قراءة الربطة", "file": os.path.basename(e["path"]), "detail": e["error"]})
     outs = [o for o in outs if "error" not in o]
+    no_contract_note = None
+    if rules.no_contract:
+        # منافسة بلا عقد: النمط الذي تشترك فيه أغلب سندات المنافسة كلها (لا سند مرجع واحد)، ثم يُعاد الفحص به
+        rules = engine.infer_rules_from_receipts([r for o in outs for r in o["bundle"].receipts], rules)
+        for o in outs:
+            o["results"] = engine.check_bundle(o["bundle"], rules, consistency=False)
+            o["bundle"].inferred_rules = rules
+        ev = rules.evidence["inferred"]
+        no_contract_note = ("فحص منافسة بدون عقد: النمط الغالب في %d سنداً — عمولة نوبكو %s%% وأساس الضريبة %s — يُطبَّق على الكل؛ "
+                            "وكل سند يخالفه، وكل صنف عومل بالضريبة أو السعر بطريقتين مختلفتين بين السندات، يُحال للمراجعة. "
+                            "اتساق النمط يكشف التعارض ولا يحدد الصحيح منه؛ العقد وحده يحسمه، ولا تُحسب غرامة تأخير بلا نصه."
+                            % (ev["receipts"], (rules.commission * 100).normalize(),
+                               {"partial_net_comm": "الصافي مع العمولة للأصناف الخاضعة", "partial_net": "صافي الأصناف الخاضعة"}.get(ev["tax_mode"], ev["tax_mode"])))
 
     receipts, results, bundle_of, order = {}, {}, {}, []
     dups = []
@@ -107,7 +121,7 @@ def collect_competition(bundle_paths, contract_path, code_map=None, workers=1, p
         for r in o["results"]:
             res_by.setdefault(r.sto, r)                     # النسخة المكررة داخل الربطة لا تحل محل الأولى
         inv_by_bundle[b.file] = {v.number: v for v in b.invoices}
-        for r in b.receipts:
+        for r in ordered_receipts(b.receipts):
             if r.sto in receipts:
                 dups.append((r.sto, b.file, r))             # يُحتسب مرة واحدة (لا يتضاعف المبلغ) لكن يُبلَّغ عنه: احتمال ازدواج السداد
                 continue
@@ -119,14 +133,22 @@ def collect_competition(bundle_paths, contract_path, code_map=None, workers=1, p
             if p.number not in pos:
                 pos[p.number] = p
                 po_first_bundle[p.number] = b.file
+    if rules.no_contract:
+        found = engine.consistency_issues([receipts[s] for s in order])
+        for s in order:
+            results[s].issues.extend(found.get(s, []))
     all_res = [results[s] for s in order]
     engine.apply_cumulative_cap(all_res, rules)
 
     # ---- مطابقة الفاتورة على مستوى المنافسة
     copies_of = defaultdict(list)                           # رقم الفاتورة -> نسخ (من كل الربطات)
+    collective = {}                                         # فاتورة جماعية: رقم -> {سند: صافيه} (تسرد السندات دون بنود أصناف)
     for o in outs:
         b = o["bundle"]
         for v in b.invoices:
+            if getattr(v, "collective", False) and not v.items:
+                collective.setdefault(v.number, {}).update(v.allocations)
+                continue
             by_copy = defaultdict(list)
             for it in v.items:
                 by_copy[it.copy].append({"code": it.code, "qty": it.qty, "price": it.unit_price, "amount": it.total, "net": it.net,
@@ -138,11 +160,26 @@ def collect_competition(bundle_paths, contract_path, code_map=None, workers=1, p
         if receipts[s].invoice_no:
             cit[receipts[s].invoice_no].append(receipts[s])
     attribution = {}
+    missing_inv = []                                        # سندات بلا فاتورة في كل الربطات: محجوزة للمراجعة، لا «سليم»
     for num, rs in cit.items():
+        if num in collective and num not in copies_of:
+            for r in rs:                                    # السند منسوب للفاتورة الجماعية بسطره إن ورد فيها
+                a = collective[num].get(r.sto)
+                attribution[r.sto] = ({"clear": True, "amount": str(a), "why": None, "pairs": []} if a is not None else
+                                      {"clear": False, "amount": None, "pairs": [], "why": "السند غير مذكور في الفاتورة الجماعية %s رغم أنه يذكر رقمها" % num})
+                if a is None:
+                    unresolved.append({"reason": "بنود السند لم تُنسب للفاتورة بوضوح", "sto": r.sto, "invoice": num, "why": attribution[r.sto]["why"],
+                                       "file": bundle_of[r.sto], "page": r.pages[0] if r.pages else None})
+            continue
         if num not in copies_of:
             for r in rs:
-                unresolved.append({"reason": "السند يذكر فاتورة غير موجودة في ربطات المنافسة", "sto": r.sto, "invoice": num,
-                                   "page": r.pages[0] if r.pages else None, "file": bundle_of[r.sto]})
+                holder = [n for n, al in collective.items() if r.sto in al]
+                u = {"reason": "السند يذكر فاتورة غير موجودة في ربطات المنافسة", "sto": r.sto, "invoice": num,
+                     "page": r.pages[0] if r.pages else None, "file": bundle_of[r.sto],
+                     "why": ("السند مدرج في الفاتورة الجماعية %s لكنه يذكر رقماً آخر للفاتورة" % "، ".join(holder)) if holder else
+                            ("لا يرد السند في أي فاتورة جماعية مرفوعة" if collective else None)}
+                unresolved.append(u)
+                missing_inv.append(u)
             continue
         out = IM.match_invoice(
             [{"sto": r.sto, "invoice_no": num, "lines": [{"code": i.code, "qty": i.qty, "price": i.unit_price, "page": i.ev.page,
@@ -161,6 +198,9 @@ def collect_competition(bundle_paths, contract_path, code_map=None, workers=1, p
         res_by = {r.sto: r for r in o["results"]}
         review_stos.update(_ocr_review(o["bundle"], res_by, unresolved))
     from job_pipeline import item_key
+    for u in missing_inv:
+        if results[u["sto"]].ok:                            # سند غير سليم بسبب مستقل يبقى حكمه، والبند يوضح الفاتورة
+            review_stos.setdefault(u["sto"], item_key(u))
     for sto, f2, r2 in dups:                                # سند استلام بالرقم نفسه في أكثر من ربطة: ازدواج سداد محتمل
         r1, f1 = receipts[sto], bundle_of[sto]
         sig = lambda r: sorted((i.code, str(i.qty), str(i.unit_price)) for i in r.items)
@@ -175,12 +215,24 @@ def collect_competition(bundle_paths, contract_path, code_map=None, workers=1, p
                      + " يُحتسب مبلغه مرة واحدة في التقرير.")}
         unresolved.append(u)
         review_stos.setdefault(sto, item_key(u))
-    if not contract.items:
+    # Owner (2026-10-26): the competition is the tender printed on the first purchase order of the first bundle, and
+    # every document of every bundle must print that same tender; the file name is only a fallback.
+    from report_writer import bundle_tenders, first_po_tender, tender_issues
+    tpages = {o["path"]: bundle_tenders(o["bundle"], o["path"]) for o in outs}
+    ref = next((t for t in (first_po_tender(o["bundle"], tpages[o["path"]]) for o in outs) if t), None)
+    if ref:
+        comp_no = rules.competition = ref
+    for o in outs:
+        for u in tender_issues(o["bundle"], ref, tpages[o["path"]]):
+            unresolved.append(u)
+            for sto in u.pop("_holds"):
+                review_stos.setdefault(sto, item_key(u))
+    if not contract.items and not rules.no_contract:
         unresolved.append({"reason": "بنود العقد (الملحق ب) لم تُقرأ؛ جدول الأصناف في ورقة التقرير الأخيرة غير محسوم"})
     return {"comp_no": comp_no, "rules": rules, "contract": contract, "receipts": receipts, "results": results, "order": order,
             "bundle_of": bundle_of, "pos": pos, "po_first_bundle": po_first_bundle, "inv_by_bundle": inv_by_bundle,
             "attribution": attribution, "unresolved": unresolved, "review_stos": review_stos, "bundles": [o["bundle"] for o in outs],
-            "invoice_numbers": set(copies_of) | set(cit)}
+            "invoice_numbers": set(copies_of) | set(cit) | set(collective), "no_contract_note": no_contract_note}
 
 
 # ------------------------------------------------------------------ مساعدات الكتابة
@@ -224,7 +276,7 @@ def write_competition_report(bundle_paths, contract_path, out_path, code_map=Non
     open_items = [u for u in data['unresolved'] if item_key(u) not in (resolved_keys or set())]
     rules, contract = data["rules"], data["contract"]
     comp = data["comp_no"]
-    order = [s for s in data["order"] if s not in set(exclude_stos or ())]      # السند الذي أكّد المراجع أن فيه مشكلة لا يدخل التقرير
+    order = competition_receipt_ids(data, exclude_stos or ())      # السند الذي أكّد المراجع أن فيه مشكلة لا يدخل التقرير
     data = {**data, "order": order}
     wb = openpyxl.load_workbook(T.writer_template_path("competition"))
     ws1, ws2, ws3, ws4 = (wb[n] for n in ("تقرير السندات", "تفصيل الأصناف", "مطابقة التعاميد", "تقرير المنافسة والأصناف"))
@@ -257,6 +309,8 @@ def write_competition_report(bundle_paths, contract_path, out_path, code_map=Non
         po_grp = po_runs[0] if po_runs else []
         taxable = [it["taxable"] for it in res.items]
         held = sto in data["review_stos"] and data["review_stos"][sto] not in (resolved_keys or set())
+        from report_writer import reviewer_sound
+        sound_by_reviewer = reviewer_sound(data, resolved_keys)
         due = rec.due or max((i.due for i in (po.items if po else []) if i.due), default=None)
         row_vals = [comp, _batch_no(fname), _bundle_no(fname), sto, _date(rec.date), rec.pon, rec.invoice_no,
                     _date(inv_b.date) if inv_b and inv_b.date else None,
@@ -266,8 +320,8 @@ def write_competition_report(bundle_paths, contract_path, out_path, code_map=Non
                     None if res.vat == 0 and not any(taxable) else ("كامل السند" if all(taxable) else "جزئي"),
                     _f(res.vat), "نعم" if res.penalty > 0 else "لا", _f(res.penalty), "لا", 0,
                     _f(res.net + res.commission), _f(res.total), _f(res.total - res.penalty), _f(res.payable),
-                    None if held else ("سليم محاسبياً" if res.ok else "غير سليم محاسبياً"),
-                    None if held else ("؛ ".join(i.text for i in res.issues) if res.issues else None),
+                    None if held else ("سليم محاسبياً" if res.ok or sto in sound_by_reviewer else "غير سليم محاسبياً"),
+                    None if held or sto in sound_by_reviewer else ("؛ ".join(i.text for i in res.issues) if res.issues else None),
                     fname, SEP.join(str(p) for p in sorted(rec.pages)), SEP.join(str(p) for p in sorted(inv_b.pages)) if inv_b else None,
                     SEP.join(str(p) for p in po_grp) if po_grp else None, _date(due), res.late_days]
         _apply_style(ws1, (sn1[0], sn1[1]), r1, n1)
