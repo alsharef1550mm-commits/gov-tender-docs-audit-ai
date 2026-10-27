@@ -296,10 +296,21 @@ def _orient_hint():
 def _spawn(job_id: str, mode: str = "run"):
     """الفحص في عملية مستقلة (job_runner.py) لا في خيط داخل الواجهة: يُلغى بقتلها بالكامل."""
     flags = (getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)) if os.name == "nt" else 0
-    p = subprocess.Popen([sys.executable, os.path.join(_HERE, "job_runner.py"), job_id, mode], cwd=_HERE, creationflags=flags,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=(os.name != "nt"))
-    JP.Job(job_id).update(pid=p.pid)
+    job = JP.Job(job_id)
+    with open(os.path.join(job.dir, "worker.log"), "ab") as log:
+        p = subprocess.Popen([sys.executable, os.path.join(_HERE, "job_runner.py"), job_id, mode], cwd=_HERE, creationflags=flags,
+                             stdout=log, stderr=subprocess.STDOUT, start_new_session=(os.name != "nt"))
+    # The child records its PID before writing progress. Parent and child must not
+    # concurrently replace the same job.json.tmp during startup.
+    threading.Thread(target=_watch_worker, args=(job_id, p), daemon=True).start()
     return p
+
+
+def _watch_worker(job_id, process):
+    code = process.wait()
+    job = JP.Job(job_id)
+    if job.load().get("state") in ("uploaded", "files_checked", "extracting", "matching"):
+        job.set_state("failed", error=f"توقفت عملية الفحص قبل اكتمالها (رمز {code})؛ راجع سجل التشغيل.")
 
 
 def _kill_tree(pid: int):

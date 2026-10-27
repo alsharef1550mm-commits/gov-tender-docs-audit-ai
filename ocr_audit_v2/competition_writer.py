@@ -286,7 +286,7 @@ def write_competition_report(bundle_paths, contract_path, out_path, code_map=Non
         _clear(ws, 6, ws.max_column)
 
     batches = sorted({_batch_no(f) for f in data["bundle_of"].values()} - {None})
-    ws1["A3"] = (f"المنافسة {comp} | {(str(len(batches)) + " دفعات") if batches else "دفعات غير مرقمة"} | أرقام الأصناف والكميات والأسعار متقابلة بالترتيب نفسه؛ "
+    ws1["A3"] = (f"المنافسة {comp} | {(str(len(batches)) + ' دفعات') if batches else 'دفعات غير مرقمة'} | أرقام الأصناف والكميات والأسعار متقابلة بالترتيب نفسه؛ "
                  "تفاصيل كل صنف في الشيت التالي")
     # ---------------- ورقة السندات + ورقة الأصناف
     r1 = r2 = 6
@@ -442,7 +442,7 @@ def _write_summary_sheet(ws, data, batches, last1, last2, n_invoices, has_open):
     if ws.max_row > note:
         ws.delete_rows(note + 1, ws.max_row - note)
 
-    ws["A3"] = f"المنافسة {comp} | {contract.supplier or ''} | {(str(len(batches)) + " دفعات") if batches else "دفعات غير مرقمة"} | المصدر: عقد المنافسة.pdf والربطات والتعاميد"
+    ws["A3"] = f"المنافسة {comp} | {contract.supplier or ''} | {(str(len(batches)) + ' دفعات') if batches else 'دفعات غير مرقمة'} | المصدر: عقد المنافسة.pdf والربطات والتعاميد"
     ct = contract.totals
     lines = [(6, "صافي مبلغ المنافسة", "L", ct.get("net")), (7, "إجمالي عمولة نوبكو", "M", ct.get("nupco")),
              (8, "إجمالي ضريبة القيمة المضافة", "P", ct.get("vat")),
