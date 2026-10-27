@@ -203,7 +203,7 @@ Research prototype: outputs are review drafts, not audit decisions. Results are 
 
 <div align="center">
 
-**إعداد · Author:** عبدالله محمد الجودي · Abdullah Mohammed Al-Judi
+**إعداد · Author:** عبدالله محمد الجودي · Abdullah Mohammed Aljoudi
 **إشراف · Supervisor:** الدكتور بهاء الدين حمودة · Dr. Bahaa Eldin Hamouda
 **كليات الخليج · Gulf Colleges** · الدبلوم العالي في الذكاء الاصطناعي · Higher Diploma in AI · 2026
 
