@@ -48,9 +48,9 @@ def _t(ar, en, tag="span", cls=""):
 
 def hero_html() -> str:
     features = [
-        ('أدلة قابلة للتتبع', 'Traceable evidence', 'دليل الصفحة لكل بند.', 'Source-page evidence for each item.'),
-        ('حساب بقواعد العقد', 'Contract-based calculation', 'العمولة والضريبة والغرامة بمحرك Decimal.', 'Commission, VAT and penalties with Decimal.'),
-        ('مراجعة قبل الاعتماد', 'Review before approval', 'إحالة غير المثبت دون تخمين.', 'Unsubstantiated values go to review, without guessing.'),
+        ('تدقيق محاسبي متكامل', 'Connected accounting checks', 'مطابقة المستندات ومراجعة الحسابات وفق العقد.', 'Match documents and check calculations against the contract.'),
+        ('حماية من أخطاء القراءة', 'Safeguards against reading errors', 'عرض القيم غير الواضحة للمراجعة بدل تخمينها.', 'Flag unclear values for review instead of guessing.'),
+        ('تغطية أوسع من العينة', 'Coverage beyond sampling', 'فحص جميع المستندات المرفوعة مع بقاء المراجعة البشرية.', 'Check all uploaded documents while retaining human review.'),
     ]
     steps = ''.join(f"<li><span class='flow-number' aria-hidden='true'>{i:02d}</span><div><strong>{_t(ar,en)}</strong><small>{_t(dar,den)}</small></div></li>" for i,(ar,en,dar,den) in enumerate(features,1))
     return f"""
