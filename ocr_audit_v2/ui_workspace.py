@@ -138,7 +138,6 @@ body,.dark body,gradio-app{background:#0a1018!important}
 .landing{max-width:1200px;text-align:start}
 .landing .topbar{padding:8px 0 22px;border-bottom:1px solid #62717d;gap:20px}
 .landing .brand{display:flex;align-items:center;gap:14px;font-size:1.08rem;line-height:1.5}
-.journal-mark{display:grid;place-items:center;flex:none;width:44px;height:48px;border:1px solid #678b86;color:#79d8bf;font-size:30px;font-family:Georgia,'Traditional Arabic',serif}
 .brand small{display:block;margin-top:5px;font-size:.72rem;font-weight:400;color:var(--mut)}
 .landing .langsw{border-radius:6px;padding:3px;gap:3px;background:#111b25;border-color:var(--line)}
 .landing .langbtn{border:0;border-radius:4px;padding:6px 12px;min-height:44px}

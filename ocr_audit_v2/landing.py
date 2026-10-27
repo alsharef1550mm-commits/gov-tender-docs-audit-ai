@@ -51,7 +51,7 @@ def hero_html() -> str:
     return f"""
 <div class='landing' data-lang='ar'>
   <div class='topbar'>
-    <div class='brand'><span class='journal-mark' aria-hidden='true'>ر</span><span>{_t('رقابة مالية ذكية', 'Smart Financial Oversight')}<small>{_t('كليات الخليج · الذكاء الاصطناعي التطبيقي', 'Gulf Colleges · Applied AI')}</small></span></div>
+    <div class='brand'><span>{_t('رقابة مالية ذكية', 'Smart Financial Oversight')}<small>{_t('كليات الخليج · الذكاء الاصطناعي التطبيقي', 'Gulf Colleges · Applied AI')}</small></span></div>
     <div class='langsw' role='group' aria-label='اللغة · Language'>
       <button type='button' class='langbtn on' data-l='ar'>العربية</button>
       <button type='button' class='langbtn' data-l='both'>عربي · EN</button>
