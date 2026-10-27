@@ -88,7 +88,7 @@ def body_html() -> str:
     return f"""
 <div class='landing splash-credits' data-lang='ar'>
   <dl class='credits-table'>
-    <div><dt>{_t('إعداد', 'Prepared by')}</dt><dd>{_t('أ/ عبدالله الجودي', 'Abdullah Aljoudi')}</dd></div>
+    <div><dt>{_t('إعداد', 'Prepared by')}</dt><dd>{_t(AUTHOR_AR, AUTHOR_EN)}</dd></div>
     <div><dt>{_t('إشراف', 'Supervised by')}</dt><dd>{_t(SUPERVISOR_AR, SUPERVISOR_EN)}</dd></div>
     <div><dt>{_t('الموضوع', 'Subject')}</dt><dd>{_t(PROGRAM_AR, PROGRAM_EN)}</dd></div>
   </dl>
