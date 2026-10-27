@@ -47,51 +47,30 @@ def _t(ar, en, tag="span", cls=""):
 
 
 def hero_html() -> str:
-    facts = "".join(f"<li>{_t(a, e)}</li>" for a, e in CHIPS)
     return f"""
-<div class='landing' data-lang='ar'>
+<div class='landing splash' data-lang='ar'>
   <div class='topbar'>
-    <div class='brand'><span>{_t('رقابة مالية ذكية', 'Smart Financial Oversight')}<small>{_t('كليات الخليج · الذكاء الاصطناعي التطبيقي', 'Gulf Colleges · Applied AI')}</small></span></div>
     <div class='langsw' role='group' aria-label='اللغة · Language'>
       <button type='button' class='langbtn on' data-l='ar'>العربية</button>
-      <button type='button' class='langbtn' data-l='both'>عربي · EN</button>
       <button type='button' class='langbtn' data-l='en'>English</button>
     </div>
   </div>
   <section class='hero'>
-    <p class='hero-meta'><span class='journal-index' aria-hidden='true'>01 /</span>{_t('الرؤية الحاسوبية في خدمة التدقيق المحاسبي', 'Computer vision for financial document auditing')}</p>
     <h1 class='h-ar ar'>فحص مستندات<br><em>المنافسات الحكومية</em></h1>
-    <p class='s-ar ar'>{TAGLINE_AR}</p>
     <h2 class='h-en en' dir='ltr'>{PROJECT_EN}</h2>
-    <p class='s-en en' dir='ltr'>{TAGLINE_EN}</p>
-    <div class='journal-abstract'>{_t('من مستند المصدر إلى تقرير موثّق؛ قراءة للبيانات، وحساب بقواعد العقد، ومراجعة بشرية للأدلة.', 'From source documents to a traceable report: data extraction, contract-based calculation and human evidence review.', 'p')}</div>
-    <ul class='facts'>{facts}</ul>
+    <p class='s-ar ar'>برمجة محاسبية دقيقة ومتخصصة تدعم الحوكمة وكفاءة الإنفاق الحكومي.</p>
+    <p class='s-en en' dir='ltr'>Specialized accounting software supporting financial governance and efficient public spending.</p>
+    <ul class='splash-tech' aria-label='التقنيات المستخدمة · Technologies'>
+      <li>{_t('الرؤية الحاسوبية', 'Computer vision')}</li>
+      <li><bdi dir='ltr'>OCR</bdi></li>
+      <li>{_t('قواعد العقد · Decimal', 'Contract rules · Decimal')}</li>
+    </ul>
   </section>
 </div>"""
 
 
 def body_html() -> str:
-    steps = "".join(
-        f"<li class='lstep'><span class='snum'>{k:02d}</span>"
-        f"<div class='lt'>{_t('<b>' + ar + '</b>', '<b>' + en + '</b>', 'div')}</div>"
-        f"<div class='ld'>{_t(dar, den, 'div')}</div></li>" for k, (ar, en, dar, den) in enumerate(STEPS, 1))
-    prin = "".join(
-        f"<li class='lprin'><div class='lt'>{_t('<b>' + ar + '</b>', '<b>' + en + '</b>', 'div')}</div>"
-        f"<div class='ld'>{_t(dar, den, 'div')}</div></li>" for ar, en, dar, den in PRINCIPLES)
-    return f"""
-<div class='landing' data-lang='ar' id='landing-body'>
-  <dl class='acad'>
-    <div><dt>{_t('إعداد', 'Prepared by')}</dt><dd>{_t(AUTHOR_AR, AUTHOR_EN, 'div')}</dd></div>
-    <div><dt>{_t('إشراف', 'Supervised by')}</dt><dd>{_t(SUPERVISOR_AR, SUPERVISOR_EN, 'div')}</dd></div>
-    <div><dt>{_t('الجهة', 'Institution')}</dt><dd>{_t(INSTITUTION_AR, INSTITUTION_EN, 'div')}</dd></div>
-    <div><dt>{_t('البرنامج', 'Program')}</dt><dd>{_t(PROGRAM_AR, PROGRAM_EN, 'div')}</dd></div>
-  </dl>
-  <h3 class='ltitle'><span class='journal-index' aria-hidden='true'>02 /</span>{_t('منهجية العمل', 'Methodology', 'span')}</h3>
-  <ol class='lsteps'>{steps}</ol>
-  <h3 class='ltitle'><span class='journal-index' aria-hidden='true'>03 /</span>{_t('مبادئ التصميم', 'Design principles', 'span')}</h3>
-  <ul class='lprins'>{prin}</ul>
-  <footer class='lfoot'>{_t('© مشروع بحثي — ' + INSTITUTION_AR + ' · الدبلوم العالي في الذكاء الاصطناعي', '© Research project — ' + INSTITUTION_EN + ' · Higher Diploma in Artificial Intelligence')}</footer>
-</div>"""
+    return ""
 
 
 def landing_html() -> str:
