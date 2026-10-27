@@ -19,7 +19,7 @@ def build(output):
     files = [(adapter / f, "model_assets/adapter/" + f)
              for f in ("adapter_config.json", "adapter_model.safetensors")]
     files.extend((root / p, "model_assets/" + Path(p).name) for p in cfg["support_files"])
-    files.extend((root / "vlm" / p, "vlm/" + p) for p in ("pod_ctl.py", "pod_guard.py"))
+    files.extend((root / "vlm" / p, "vlm/" + p) for p in ("pod_ctl.py", "pod_guard.py", "prompt_pairs.txt"))
     with tarfile.open(output / "model_assets.tar.gz", "w:gz", compresslevel=1) as archive:
         for source, destination in files:
             assert source.is_file() and not source.is_symlink()
@@ -34,8 +34,10 @@ def build(output):
     url = "https://huggingface.co/spaces/abade1990/audit-review-private/raw/main/Dockerfile"
     docker = urllib.request.urlopen(url, timeout=30).read().decode("utf-8")
     assert "tesseract-ocr tesseract-ocr-ara tesseract-ocr-eng" in docker
-    docker = docker.replace("tesseract-ocr tesseract-ocr-ara tesseract-ocr-eng", "tesseract-ocr tesseract-ocr-ara tesseract-ocr-eng openssh-client ca-certificates")
-    docker = docker.replace("COPY --chown=user . .", "COPY --chown=user . .\nRUN tar --no-same-owner -xzf model_assets.tar.gz && rm model_assets.tar.gz")
+    if "openssh-client" not in docker:
+        docker = docker.replace("tesseract-ocr tesseract-ocr-ara tesseract-ocr-eng", "tesseract-ocr tesseract-ocr-ara tesseract-ocr-eng openssh-client ca-certificates")
+    if "RUN tar --no-same-owner -xzf model_assets.tar.gz" not in docker:
+        docker = docker.replace("COPY --chown=user . .", "COPY --chown=user . .\nRUN tar --no-same-owner -xzf model_assets.tar.gz && rm model_assets.tar.gz")
     (output / "Dockerfile").write_text(docker, encoding="utf-8", newline="\n")
     manifest = []
     for p in sorted(output.iterdir()):

@@ -35,6 +35,7 @@ GPUS = ["NVIDIA A40", "NVIDIA L40S"]
 KEY = Path.home() / ".audit_model" / "ssh_key"
 DETACHED = (getattr(subprocess, "CREATE_NO_WINDOW", 0) | 0x00000008) if os.name == "nt" else 0
 _START_LOCK = threading.Lock()
+PROMPT_SHA256 = "e7c62fb17da03a11f662b2d07f099c0974ad1087f09a5cc6084327881de9c1a0"
 SERVE = r"""#!/bin/bash
 set -euo pipefail
 cd /root/svc
@@ -134,6 +135,7 @@ def _spawn_start():
 
 def _run_start():
     try:
+        _runtime_preflight()
         cfg = json.loads(CONFIG.read_text(encoding="utf-8"))
         adapter = (HERE / cfg["adapter_dir"]).resolve()
         assert hashlib.sha256((adapter / "adapter_model.safetensors").read_bytes()).hexdigest() == cfg["adapter_sha256"], \
@@ -236,6 +238,20 @@ def _run_start():
     except (Exception, SystemExit) as e:  # noqa: BLE001
         save_state(status="error", message=str(e)[:300])
         stop(keep_message=True)
+
+
+def _runtime_preflight():
+    """Reject an incomplete cloud deployment before any paid provider request."""
+    import competition_writer
+    import report_writer
+    import pairs_reader
+    import report_template
+    prompt = HERE / "vlm" / "prompt_pairs.txt"
+    if not prompt.is_file() or hashlib.sha256(prompt.read_bytes()).hexdigest() != PROMPT_SHA256:
+        raise RuntimeError("ملف موجّه القراءة المعتمد ناقص أو تغيّرت بصمته؛ يلزم تصحيح النشر قبل تشغيل المورد")
+    for kind in ("batch", "competition"):
+        if not Path(report_template.writer_template_path(kind)).is_file():
+            raise RuntimeError("قالب التقرير غير متاح: " + kind)
 
 
 def stop(keep_message=False):

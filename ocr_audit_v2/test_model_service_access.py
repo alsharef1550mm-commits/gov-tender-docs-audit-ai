@@ -9,8 +9,16 @@ import model_remote_guard as RG
 
 
 def main():
+    real_prompt = (MS.HERE / "vlm/prompt_pairs.txt").read_bytes()
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
+        with patch.object(MS, "HERE", root), patch.object(MS, "_api") as api, \
+             patch.object(MS, "save_state") as save, patch.object(MS, "stop"):
+            MS._run_start()
+            assert "موجّه" in save.call_args.kwargs["message"]
+            api.assert_not_called()
+        (root / "vlm").mkdir()
+        (root / "vlm/prompt_pairs.txt").write_bytes(real_prompt)
         (root / "adapter").mkdir()
         weights = root / "adapter/adapter_model.safetensors"
         weights.write_bytes(b"test adapter only")
