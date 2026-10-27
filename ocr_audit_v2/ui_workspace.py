@@ -289,6 +289,29 @@ h1.app-title{font-weight:650;font-size:clamp(1.35rem,2.1vw,1.9rem);line-height:1
 .credits-table dd{margin:0;font-size:.79rem;color:#d5e3df;line-height:1.65}
 @media(max-width:700px){.credits-table{grid-template-columns:1fr 1fr;gap:8px;margin-top:4px}.credits-table>div{padding:8px 0 0;border:0}.credits-table>div:last-child{grid-column:1/-1;display:flex;align-items:baseline;gap:8px;padding-top:0}.credits-table dd{font-size:.67rem}.credits-table dt{font-size:.62rem;flex:none}}
 
+/* Keep the remaining review feature beside the introduction; raise actions and credits. */
+.overview-copy .overview-features{display:block;margin:16px 0 0;border:0}
+.overview-copy .overview-features li{padding:0;border:0;gap:3px}
+.overview-copy .overview-features strong{font-size:.82rem}
+.overview-copy .overview-features li>span{font-size:.76rem}
+.splash .hero{padding-bottom:0!important}
+.credits-table{margin-top:0}
+.credits-table dt{font-size:.86rem;color:#b4c7cf}
+.credits-table dd{font-size:1rem;line-height:1.7;font-weight:500}
+@media(max-width:700px){
+ .overview-copy .overview-features{margin-top:12px}
+ .overview-copy .overview-features strong{font-size:.76rem}
+ .overview-copy .overview-features li>span{font-size:.72rem}
+ .credits-table dt{font-size:.75rem}.credits-table dd{font-size:.86rem;line-height:1.6}
+ .credits-table>div:last-child{align-items:flex-start}
+}
+
+.feature-card .overview-flow{gap:20px}
+.feature-card .overview-flow li::after{display:none}
+.feature-card .overview-flow strong{font-size:.92rem}
+.feature-card .overview-flow small{font-size:.8rem;margin-top:5px;line-height:1.6}
+@media(max-width:700px){.feature-card .overview-flow{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.feature-card .overview-flow strong{font-size:.72rem}.feature-card .overview-flow small{display:block;font-size:.65rem;line-height:1.5}}
+
 """
 
 JS = r"""

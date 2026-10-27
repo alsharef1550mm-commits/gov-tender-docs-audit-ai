@@ -47,20 +47,12 @@ def _t(ar, en, tag="span", cls=""):
 
 
 def hero_html() -> str:
-    flow = [
-        ('رفع المستندات', 'Upload documents', 'العقد والربطات', 'Contract and bundles'),
-        ('قراءة البيانات', 'Read the data', 'نص مباشر أو OCR ورؤية', 'Text, OCR and vision'),
-        ('الربط والحساب', 'Match and calculate', 'مطابقة المستندات وقواعد العقد', 'Document matching and contract rules'),
-        ('مراجعة الأدلة', 'Review evidence', 'مراجعة بشرية للحالات غير المحسومة', 'Human review of unresolved cases'),
-        ('تقرير Excel', 'Excel report', 'القالب المعتمد ومواضع المصدر', 'Approved template and source references'),
-    ]
-    steps = ''.join(f"<li><span class='flow-number' aria-hidden='true'>{i:02d}</span><div><strong>{_t(ar,en)}</strong><small>{_t(dar,den)}</small></div></li>" for i,(ar,en,dar,den) in enumerate(flow,1))
     features = [
-        ('أدلة قابلة للتتبع', 'Traceable evidence', 'ارجع من كل بند إلى صفحة المصدر.', 'Return from each item to its source page.'),
+        ('أدلة قابلة للتتبع', 'Traceable evidence', 'دليل الصفحة لكل بند.', 'Source-page evidence for each item.'),
         ('حساب بقواعد العقد', 'Contract-based calculation', 'العمولة والضريبة والغرامة بمحرك Decimal.', 'Commission, VAT and penalties with Decimal.'),
-        ('مراجعة قبل الاعتماد', 'Review before approval', 'القيم غير المثبتة تُحال للمراجع دون تخمين.', 'Unsubstantiated values go to review, without guessing.'),
+        ('مراجعة قبل الاعتماد', 'Review before approval', 'إحالة غير المثبت دون تخمين.', 'Unsubstantiated values go to review, without guessing.'),
     ]
-    cards = ''.join(f"<li><strong>{_t(ar,en)}</strong><span>{_t(dar,den)}</span></li>" for ar,en,dar,den in features)
+    steps = ''.join(f"<li><span class='flow-number' aria-hidden='true'>{i:02d}</span><div><strong>{_t(ar,en)}</strong><small>{_t(dar,den)}</small></div></li>" for i,(ar,en,dar,den) in enumerate(features,1))
     return f"""
 <div class='landing splash' data-lang='ar'>
   <div class='topbar'>
@@ -82,12 +74,12 @@ def hero_html() -> str:
           <li>{_t('قواعد العقد · Decimal', 'Contract rules · Decimal')}</li>
         </ul>
       </div>
-      <aside class='workflow-card'>
-        <h3>{_t('كيف يعمل النظام؟', 'How it works')}</h3>
+      <aside class='workflow-card feature-card'>
+        <h3>{_t('مميزات النظام', 'System features')}</h3>
         <ol class='overview-flow'>{steps}</ol>
       </aside>
     </div>
-    <ul class='overview-features' aria-label='مميزات النظام · Features'>{cards}</ul>
+
   </section>
 </div>"""
 
