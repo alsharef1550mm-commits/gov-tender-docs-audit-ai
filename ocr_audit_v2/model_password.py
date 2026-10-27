@@ -13,8 +13,13 @@ import hmac
 import json
 import os
 import secrets
+import threading
 
 FILE = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "audit_model" / "switch_password.json"
+# Deployment contains only the public demo password's salted digest. Mutable lockout
+# state stays outside Gradio's served files, including on a Linux Hugging Face Space.
+SEED = Path(__file__).with_name("model_password_seed.json")
+_LOCK = threading.RLock()
 ROUNDS = 240_000
 MAX_TRIES, LOCK_MIN = 5, 10
 
@@ -26,6 +31,14 @@ def _derive(password, salt):
 def _load():
     try:
         return json.loads(FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        try:
+            data = json.loads(SEED.read_text(encoding="utf-8"))
+            if len(bytes.fromhex(data["salt"])) != 16 or len(bytes.fromhex(data["hash"])) != 32:
+                return None
+            return dict(data, fails=0, locked_until=None)
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
     except (OSError, ValueError):
         return None
 
@@ -43,6 +56,13 @@ def is_set():
 
 def check(password):
     """Return (ok, message). Counts failures and enforces the temporary lock."""
+    with _LOCK:
+        return _check_locked(password)
+
+
+def _check_locked(password):
+    if password is not None and not isinstance(password, str):
+        return False, "باسورد غير صحيح"
     data = _load()
     if not data or not data.get("hash"):
         return False, "لم يُضبط باسورد التشغيل بعد: شغّل الأمر python ocr_audit_v2/model_password.py"

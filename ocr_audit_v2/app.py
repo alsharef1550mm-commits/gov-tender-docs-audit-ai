@@ -254,10 +254,10 @@ def model_toggle():
 
 
 def model_unlock(password):
-    ok, why = MP.check(password)
-    if not ok:
-        return model_view(), gr.update(visible=True), _pw_msg(why), ""
-    MS.start()
+    try:
+        MS.start(password)
+    except PermissionError as exc:
+        return model_view(), gr.update(visible=True), _pw_msg(str(exc)), ""
     return model_view(), gr.update(visible=False), _pw_msg("تم التحقق؛ بدأ تشغيل النموذج", ok=True), ""
 
 
