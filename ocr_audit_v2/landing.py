@@ -4,9 +4,9 @@
 """
 
 PROJECT_AR = "نظام فحص مستندات المنافسات الحكومية بتقنيات الذكاء الاصطناعي والرؤية الحاسوبية"
-TAGLINE_AR = "برمجة محاسبية متخصصة لتحسين الإنفاق الحكومي ودعم الرقابة المالية بأقل تكلفة ممكنة"
+TAGLINE_AR = "برمجة محاسبية دقيقة ومتخصصة عبر الرؤية الحاسوبية وOCR وقواعد التوجيه، تدعم الحوكمة وكفاءة الإنفاق الحكومي"
 PROJECT_EN = "AI-Powered Government Tender Document Auditing"
-TAGLINE_EN = "Specialized Accounting Software for Improving Public Spending and Supporting Financial Oversight at the Lowest Possible Cost"
+TAGLINE_EN = "Computer vision, OCR and contract-based rules supporting financial governance and efficient public spending"
 AUTHOR_AR, AUTHOR_EN = "عبدالله محمد الجودي", "Abdullah Mohammed Aljoudi"
 SUPERVISOR_AR, SUPERVISOR_EN = "الدكتور بهاء الدين حمودة", "Dr. Bahaa Eldin Hamouda"
 INSTITUTION_AR, INSTITUTION_EN = "كليات الخليج", "Gulf Colleges"
@@ -26,14 +26,14 @@ STEPS = [
      "One report in the approved template, with a clear review style and stored formula results."),
 ]
 PRINCIPLES = [
-    ("الدقة قبل الأتمتة", "Accuracy before automation", "لا يمرّ خطأ غير مكتشف إلى تقرير معتمد؛ ما لا يُثبَت يُحال للمراجعة.",
-     "No undetected error reaches an approved report; what cannot be proven is referred to a reviewer."),
+    ("الدقة قبل الأتمتة", "Accuracy before automation", "ما لا تثبته المستندات يُحال للمراجعة مع دليل الصفحة، مع الفصل بين القراءة والحساب.",
+     "Unsubstantiated fields are referred for review with page evidence; extraction and calculation remain separate."),
     ("الحساب لا يقرره نموذج لغوي", "Math is never decided by a language model", "النماذج تقرأ فقط؛ الحساب والأحكام بقواعد العقد ومحرك Decimal.",
      "Models only read; calculations and verdicts come from contract rules and a Decimal engine."),
     ("أدلة قابلة للتتبع", "Traceable evidence", "من كل بند تُفتح صفحات المصدر مع عدسة تقريب اختيارية.",
      "Every item opens its source pages, with an optional magnifier."),
-    ("تشغيل محلي وأمن البيانات", "Local deployment and data security", "كل المكونات مفتوحة المصدر وتعمل داخل الجهة (التطبيق، القراءة النصية وOCR، محرك القواعد، ونموذج الرؤية على وحدة معالجة محلية)؛ فلا حاجة لإرسال المستندات إلى خدمة خارجية، وتبقى مستندات المنافسات وبيانات الموردين تحت سيطرة الجهة.",
-     "All components are open source and can run on-premises (the app, text reading and OCR, the rules engine and the vision model on a local GPU), so tender documents and supplier data need not leave the organization and stay under its control."),
+    ("مسار واضح للمراجعة", "A clear review workflow", "المستند هو مرجع القراءة؛ يراجع المستخدم الأدلة ويوثّق قراره قبل اعتماد المخرجات.",
+     "Source documents remain the reference. The reviewer checks the evidence and records a decision before approving the output."),
     ("الفاتورة مبرر مؤيد", "The invoice supports, it does not equal", "قد تؤيد الفاتورة الواحدة عدة سندات وتعاميد في ربطات مختلفة.",
      "One invoice may support several receipts and orders across different bundles."),
 ]
@@ -49,21 +49,22 @@ def _t(ar, en, tag="span", cls=""):
 def hero_html() -> str:
     facts = "".join(f"<li>{_t(a, e)}</li>" for a, e in CHIPS)
     return f"""
-<div class='landing' data-lang='both'>
+<div class='landing' data-lang='ar'>
   <div class='topbar'>
-    <div class='brand'>{_t('رقابة مالية ذكية', 'Smart Financial Oversight')}</div>
+    <div class='brand'><span class='journal-mark' aria-hidden='true'>ر</span><span>{_t('رقابة مالية ذكية', 'Smart Financial Oversight')}<small>{_t('كليات الخليج · الذكاء الاصطناعي التطبيقي', 'Gulf Colleges · Applied AI')}</small></span></div>
     <div class='langsw' role='group' aria-label='اللغة · Language'>
-      <button type='button' class='langbtn' data-l='ar'>العربية</button>
-      <button type='button' class='langbtn on' data-l='both'>عربي · EN</button>
+      <button type='button' class='langbtn on' data-l='ar'>العربية</button>
+      <button type='button' class='langbtn' data-l='both'>عربي · EN</button>
       <button type='button' class='langbtn' data-l='en'>English</button>
     </div>
   </div>
   <section class='hero'>
-    <p class='hero-meta'>{_t('مشروع بحثي · نسخة تجريبية خاصة', 'Research project · Private prototype')}</p>
-    <h1 class='h-ar ar'>{PROJECT_AR}</h1>
+    <p class='hero-meta'><span class='journal-index' aria-hidden='true'>01 /</span>{_t('الرؤية الحاسوبية في خدمة التدقيق المحاسبي', 'Computer vision for financial document auditing')}</p>
+    <h1 class='h-ar ar'>فحص مستندات<br><em>المنافسات الحكومية</em></h1>
     <p class='s-ar ar'>{TAGLINE_AR}</p>
     <h2 class='h-en en' dir='ltr'>{PROJECT_EN}</h2>
     <p class='s-en en' dir='ltr'>{TAGLINE_EN}</p>
+    <div class='journal-abstract'>{_t('من مستند المصدر إلى تقرير موثّق؛ قراءة للبيانات، وحساب بقواعد العقد، ومراجعة بشرية للأدلة.', 'From source documents to a traceable report: data extraction, contract-based calculation and human evidence review.', 'p')}</div>
     <ul class='facts'>{facts}</ul>
   </section>
 </div>"""
@@ -78,16 +79,16 @@ def body_html() -> str:
         f"<li class='lprin'><div class='lt'>{_t('<b>' + ar + '</b>', '<b>' + en + '</b>', 'div')}</div>"
         f"<div class='ld'>{_t(dar, den, 'div')}</div></li>" for ar, en, dar, den in PRINCIPLES)
     return f"""
-<div class='landing' data-lang='both' id='landing-body'>
+<div class='landing' data-lang='ar' id='landing-body'>
   <dl class='acad'>
     <div><dt>{_t('إعداد', 'Prepared by')}</dt><dd>{_t(AUTHOR_AR, AUTHOR_EN, 'div')}</dd></div>
     <div><dt>{_t('إشراف', 'Supervised by')}</dt><dd>{_t(SUPERVISOR_AR, SUPERVISOR_EN, 'div')}</dd></div>
     <div><dt>{_t('الجهة', 'Institution')}</dt><dd>{_t(INSTITUTION_AR, INSTITUTION_EN, 'div')}</dd></div>
     <div><dt>{_t('البرنامج', 'Program')}</dt><dd>{_t(PROGRAM_AR, PROGRAM_EN, 'div')}</dd></div>
   </dl>
-  <h3 class='ltitle'>{_t('كيف يعمل النظام', 'How it works', 'span')}</h3>
+  <h3 class='ltitle'><span class='journal-index' aria-hidden='true'>02 /</span>{_t('منهجية العمل', 'Methodology', 'span')}</h3>
   <ol class='lsteps'>{steps}</ol>
-  <h3 class='ltitle'>{_t('مبادئ التصميم', 'Design principles', 'span')}</h3>
+  <h3 class='ltitle'><span class='journal-index' aria-hidden='true'>03 /</span>{_t('مبادئ التصميم', 'Design principles', 'span')}</h3>
   <ul class='lprins'>{prin}</ul>
   <footer class='lfoot'>{_t('© مشروع بحثي — ' + INSTITUTION_AR + ' · الدبلوم العالي في الذكاء الاصطناعي', '© Research project — ' + INSTITUTION_EN + ' · Higher Diploma in Artificial Intelligence')}</footer>
 </div>"""
